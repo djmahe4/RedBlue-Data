@@ -7,6 +7,12 @@ datasets for red-team (offensive) and blue-team (defensive) LLM training.
 ## Quick Start
 
 ```bash
+# Clone this repo
+git clone https://github.com/djmahe4/RedBlue-Data
+
+# Change path
+cd RedBlue-Data
+
 # Clone the pentest reports source
 git clone --depth 1 https://github.com/juliocesarfort/public-pentesting-reports reports-source
 
