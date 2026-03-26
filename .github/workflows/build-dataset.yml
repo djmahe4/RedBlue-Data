@@ -1,0 +1,70 @@
+name: Build Cybersecurity Dataset
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      max_reports:
+        description: "Maximum number of reports to process"
+        required: false
+        default: "30"
+      max_file_size_mb:
+        description: "Maximum file size in MB"
+        required: false
+        default: "5"
+
+jobs:
+  build-dataset:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    env:
+      MAX_REPORTS: ${{ github.event.inputs.max_reports || '30' }}
+      MAX_FILE_SIZE_MB: ${{ github.event.inputs.max_file_size_mb || '5' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache pip dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Clone pentest reports source (shallow)
+        run: |
+          git clone --depth 1 \
+            https://github.com/juliocesarfort/public-pentesting-reports \
+            reports-source
+
+      - name: Run dataset pipeline
+        run: python scripts/process_reports.py
+
+      - name: Run tests
+        run: pytest tests/ -v
+
+      - name: Commit dataset if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dataset/
+          if git diff --cached --quiet; then
+            echo "No dataset changes to commit."
+          else
+            git commit -m "chore: update dataset [skip ci]"
+            git push
+          fi
