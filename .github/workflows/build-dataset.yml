@@ -3,7 +3,8 @@ name: Build Cybersecurity Dataset
 on:
   push:
     branches:
-      - main
+      - main 
+      - 'copilot/**'
   workflow_dispatch:
     inputs:
       max_reports:
