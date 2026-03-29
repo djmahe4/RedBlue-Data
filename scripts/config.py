@@ -18,6 +18,7 @@ class Config:
     source_repo: str
     incremental: bool
     full_run: bool
+    skip_ocr: bool
 
     def print_config(self) -> None:
         print("=== Pipeline Configuration ===")
@@ -28,6 +29,7 @@ class Config:
         print(f"  source_repo       : {self.source_repo}")
         print(f"  incremental       : {self.incremental}")
         print(f"  full_run          : {self.full_run}")
+        print(f"  skip_ocr          : {self.skip_ocr}")
         print("==============================")
 
     def as_dict(self) -> dict:
@@ -39,6 +41,7 @@ class Config:
             "source_repo": self.source_repo,
             "incremental": self.incremental,
             "full_run": self.full_run,
+            "skip_ocr": self.skip_ocr,
         }
 
 
@@ -100,6 +103,12 @@ def get_config(argv: list | None = None) -> Config:
         default=False,
         help="Process all reports ignoring max_reports limit",
     )
+    parser.add_argument(
+        "--skip_ocr",
+        action="store_true",
+        default=False,
+        help="Skip OCR for scanned PDFs (env: SKIP_OCR)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -154,6 +163,14 @@ def get_config(argv: list | None = None) -> Config:
 
     full_run: bool = args.full_run or _parse_bool(os.environ.get("FULL_RUN", "false"))
 
+    skip_ocr: bool
+    if args.skip_ocr:
+        skip_ocr = True
+    elif os.environ.get("SKIP_OCR"):
+        skip_ocr = _parse_bool(os.environ["SKIP_OCR"])
+    else:
+        skip_ocr = False
+
     return Config(
         max_reports=max_reports,
         max_file_size_mb=max_file_size_mb,
@@ -162,4 +179,5 @@ def get_config(argv: list | None = None) -> Config:
         source_repo=source_repo,
         incremental=incremental,
         full_run=full_run,
+        skip_ocr=skip_ocr,
     )

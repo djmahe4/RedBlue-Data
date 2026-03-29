@@ -1,16 +1,41 @@
 """
 tests/test_extraction.py - Tests for text extraction utilities.
 """
+import io
 import sys
 from pathlib import Path
 import tempfile
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
-from extract_text import _extract_md, _extract_html
+from extract_text import _extract_md, _extract_html, _extract_pdf, _ocr_pages
 from utils import mask_sensitive, file_size_mb, compute_report_id, ensure_dir
+
+
+def _make_text_pdf(tmp_path: Path, text: str = "Hello pentest world") -> Path:
+    """Create a minimal PDF with an embedded text layer using PyMuPDF."""
+    import fitz
+    pdf_path = tmp_path / "sample.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 100), text)
+    doc.save(str(pdf_path))
+    doc.close()
+    return pdf_path
+
+
+def _make_blank_pdf(tmp_path: Path) -> Path:
+    """Create a PDF with no embedded text (simulates a scanned page)."""
+    import fitz
+    pdf_path = tmp_path / "blank.pdf"
+    doc = fitz.open()
+    doc.new_page()  # blank — no text inserted
+    doc.save(str(pdf_path))
+    doc.close()
+    return pdf_path
 
 
 class TestExtractMd:
@@ -91,3 +116,87 @@ class TestFileHelpers:
         new_dir = tmp_path / "a" / "b" / "c"
         result = ensure_dir(new_dir)
         assert result.is_dir()
+
+
+class TestExtractPdf:
+    def test_extracts_text_from_text_pdf(self, tmp_path):
+        pdf_path = _make_text_pdf(tmp_path, "SQL injection vulnerability found")
+        result = _extract_pdf(pdf_path)
+        assert "SQL" in result or len(result.strip()) > 0  # text layer present
+
+    def test_blank_pdf_attempts_ocr(self, tmp_path):
+        """For a blank PDF, _extract_pdf should call _ocr_pages."""
+        pdf_path = _make_blank_pdf(tmp_path)
+        with patch("extract_text._ocr_pages", return_value=[""]) as mock_ocr:
+            _extract_pdf(pdf_path)
+            mock_ocr.assert_called_once()
+
+    def test_text_pdf_does_not_trigger_ocr(self, tmp_path):
+        """A PDF with a text layer must NOT call _ocr_pages."""
+        pdf_path = _make_text_pdf(tmp_path, "This is a real text layer")
+        with patch("extract_text._ocr_pages") as mock_ocr:
+            _extract_pdf(pdf_path)
+            mock_ocr.assert_not_called()
+
+    def test_skip_ocr_flag_honored(self, tmp_path):
+        """When skip_ocr=True, _ocr_pages must NOT be called regardless of page content."""
+        pdf_path = _make_blank_pdf(tmp_path)
+        with patch("extract_text._ocr_pages") as mock_ocr:
+            result = _extract_pdf(pdf_path, skip_ocr=True)
+            mock_ocr.assert_not_called()
+            assert result.strip() == ""
+
+
+class TestOcrPagesFallback:
+    def test_graceful_fallback_when_pytesseract_missing(self, tmp_path):
+        """_ocr_pages should return pages unchanged if pytesseract is not installed."""
+        import fitz
+        pdf_path = _make_blank_pdf(tmp_path)
+        doc = fitz.open(str(pdf_path))
+        pages = [""]
+        indices = [0]
+
+        with patch.dict("sys.modules", {"pytesseract": None}):
+            result = _ocr_pages(doc, pages, indices)
+        doc.close()
+        # Should return original pages list unchanged (graceful degradation)
+        assert result == pages
+
+
+class TestMinWordsHeuristic:
+    def test_process_report_skips_short_text(self, tmp_path):
+        """process_report should return [] when extracted text is below MIN_WORDS."""
+        sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+        from process_reports import process_report
+        from config import get_config
+
+        pdf_path = _make_text_pdf(tmp_path, "Only five words here")
+        cfg = get_config(["--max_reports", "1"])
+        cfg.max_file_size_mb = 100.0
+
+        # Patch extract_text to return a very short string (< 20 words)
+        with patch("process_reports.extract_text", return_value="Too short text"):
+            result = process_report(pdf_path, tmp_path, cfg)
+        assert result == [], "Expected empty list when extracted text is below MIN_WORDS"
+
+    def test_process_report_accepts_sufficient_text(self, tmp_path):
+        """process_report should not skip reports with >= MIN_WORDS words."""
+        sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+        from process_reports import process_report
+        from config import get_config
+
+        pdf_path = _make_text_pdf(tmp_path)
+        cfg = get_config(["--max_reports", "1"])
+        cfg.max_file_size_mb = 100.0
+
+        long_text = " ".join(["This is a valid pentest finding with enough words"] * 5)
+        with patch("process_reports.extract_text", return_value=long_text):
+            # May return [] if segmentation finds nothing, but should not be
+            # skipped by the word-count guard
+            with patch("process_reports.logger") as mock_log:
+                process_report(pdf_path, tmp_path, cfg)
+                # Ensure the 'too short' warning was NOT logged
+                logged_msgs = [
+                    str(c) for c in mock_log.warning.call_args_list
+                ]
+                assert not any("too short" in m for m in logged_msgs)

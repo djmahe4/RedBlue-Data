@@ -15,16 +15,27 @@ on:
         description: "Maximum file size in MB"
         required: false
         default: "5"
+      ocr_dpi:
+        description: "OCR Resolution (e.g. 150 for fast, 300 for high quality)"
+        required: false
+        default: "300"
+      skip_ocr:
+        description: "Skip OCR for scanned PDFs (true/false)"
+        required: false
+        default: "true"
 
 jobs:
   build-dataset:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: write
 
     env:
       MAX_REPORTS: ${{ github.event.inputs.max_reports || '30' }}
       MAX_FILE_SIZE_MB: ${{ github.event.inputs.max_file_size_mb || '5' }}
+      OCR_DPI: ${{ github.event.inputs.ocr_dpi || '300' }}
+      SKIP_OCR: ${{ github.event.inputs.skip_ocr || 'true' }}
 
     steps:
       - name: Checkout repository
@@ -42,6 +53,9 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+
+      - name: Install system dependencies (OCR)
+        run: sudo apt-get install -y tesseract-ocr
 
       - name: Install dependencies
         run: pip install -r requirements.txt

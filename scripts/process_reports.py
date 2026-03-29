@@ -96,9 +96,19 @@ def process_report(
         return []
 
     logger.info("Processing %s / %s (%.2f MB)", vendor, fpath.name, size_mb)
-    raw_text = extract_text(fpath)
+    raw_text = extract_text(fpath, skip_ocr=cfg.skip_ocr)
     if not raw_text.strip():
         logger.warning("No text extracted from %s", fpath)
+        return []
+
+    # Simple heuristic: discard OCR results that are clearly garbage
+    # (e.g. image-only pages with watermarks or noise that yielded < 20 words)
+    MIN_WORDS = 20
+    if len(raw_text.split()) < MIN_WORDS:
+        logger.warning(
+            "Extracted text too short (%d words, min %d) from %s — likely OCR noise, skipping",
+            len(raw_text.split()), MIN_WORDS, fpath,
+        )
         return []
 
     text = mask_sensitive(raw_text)
