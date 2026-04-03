@@ -215,3 +215,6 @@ dataset/red_team.jsonl
 dataset/blue_team.jsonl
 dataset/manifest.json
 dataset/stats.json
+
+# Ollama LLM response cache
+.ollama_cache/

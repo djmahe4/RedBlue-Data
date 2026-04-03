@@ -104,14 +104,14 @@ Output: {"vuln_type": "XSS", "cwe": "CWE-79", "owasp": "A03:2021", "severity": "
 # Response cache helpers
 # ---------------------------------------------------------------------------
 
-def _cache_key(prompt: str) -> str:
-    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+def _cache_key(prompt: str, model: str = "") -> str:
+    return hashlib.sha256(f"{model}:{prompt}".encode("utf-8")).hexdigest()
 
 
-def _load_cached(prompt: str, cache_dir: Optional[Path]) -> Optional[Dict[str, Any]]:
+def _load_cached(prompt: str, cache_dir: Optional[Path], model: str = "") -> Optional[Dict[str, Any]]:
     if cache_dir is None:
         return None
-    key = _cache_key(prompt)
+    key = _cache_key(prompt, model)
     cache_file = cache_dir / f"{key}.json"
     if cache_file.exists():
         try:
@@ -122,11 +122,11 @@ def _load_cached(prompt: str, cache_dir: Optional[Path]) -> Optional[Dict[str, A
     return None
 
 
-def _save_cached(prompt: str, result: Dict[str, Any], cache_dir: Optional[Path]) -> None:
+def _save_cached(prompt: str, result: Dict[str, Any], cache_dir: Optional[Path], model: str = "") -> None:
     if cache_dir is None:
         return
     cache_dir.mkdir(parents=True, exist_ok=True)
-    key = _cache_key(prompt)
+    key = _cache_key(prompt, model)
     cache_file = cache_dir / f"{key}.json"
     try:
         with open(cache_file, "w", encoding="utf-8") as fh:
@@ -396,7 +396,7 @@ def _call_ollama(
     """Make the Ollama API call for validation/correction and merge back."""
     prompt = _build_prompt(record)
 
-    cached = _load_cached(prompt, cache_dir)
+    cached = _load_cached(prompt, cache_dir, model)
     if cached is not None:
         enriched = cached
     else:
@@ -408,7 +408,7 @@ def _call_ollama(
                 record.get("finding_id", "unknown"),
             )
             return record
-        _save_cached(prompt, enriched, cache_dir)
+        _save_cached(prompt, enriched, cache_dir, model)
 
     merged: Dict[str, Any] = dict(record)
 
@@ -446,13 +446,13 @@ def _call_ollama_mapping(
     """Make the Ollama API call for semantic mapping of an external record."""
     prompt = _build_mapping_prompt(record)
 
-    cached = _load_cached(prompt, cache_dir)
+    cached = _load_cached(prompt, cache_dir, model)
     if cached is not None:
         return cached
 
     raw_response = _call_ollama_api(prompt, model, timeout)
     result = _parse_json_response(raw_response)
     if result is not None:
-        _save_cached(prompt, result, cache_dir)
+        _save_cached(prompt, result, cache_dir, model)
     return result
 

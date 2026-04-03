@@ -90,6 +90,9 @@ def _deduplicate(
 
     # Fit vectorizer on combined corpus to share vocabulary
     all_texts = existing_texts + new_texts
+    # Note: max_features=50_000 limits vocabulary size to control memory usage.
+    # For very large external datasets (millions of records), consider reducing
+    # this value or processing in batches.
     vectorizer = TfidfVectorizer(min_df=1, stop_words="english", max_features=50_000)
     try:
         tfidf_matrix = vectorizer.fit_transform(all_texts)

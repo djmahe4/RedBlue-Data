@@ -55,7 +55,7 @@ class Finding(BaseModel):
 
     @field_validator("severity", mode="before")
     @classmethod
-    def normalise_severity(cls, v: Any) -> Optional[str]:
+    def normalize_severity(cls, v: Any) -> Optional[str]:
         if v is None:
             return None
         s = str(v).lower().strip()
@@ -67,7 +67,7 @@ class Finding(BaseModel):
 
     @field_validator("cwe", mode="before")
     @classmethod
-    def normalise_cwe(cls, v: Any) -> Optional[str]:
+    def normalize_cwe(cls, v: Any) -> Optional[str]:
         if v is None:
             return None
         s = str(v).strip()
@@ -98,7 +98,7 @@ class InstructionPair(BaseModel):
 
     @field_validator("severity", mode="before")
     @classmethod
-    def normalise_severity(cls, v: Any) -> Optional[str]:
+    def normalize_severity(cls, v: Any) -> Optional[str]:
         if v is None:
             return None
         s = str(v).lower().strip()

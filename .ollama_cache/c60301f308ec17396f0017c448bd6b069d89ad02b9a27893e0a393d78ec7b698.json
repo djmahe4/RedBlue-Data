@@ -1,1 +1,0 @@
-{"cwe": "CWE-89", "owasp": "A03:2021", "severity": "critical", "vuln_type": "SQLi", "enhanced_description": "Classic SQL injection allows full DB dump.", "attack_vector": "Craft a payload: ' OR 1=1--", "remediation": "Use parameterised queries and an ORM.", "quality_score": 8}
