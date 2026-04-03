@@ -201,11 +201,20 @@ def main() -> None:
         "config_used": {},
     }
 
-    # When NOT incremental, wipe existing outputs
-    if not cfg.incremental:
-        for p in (findings_path, red_path, blue_path):
+    # When NOT incremental or RESET is requested, wipe existing outputs
+    if not cfg.incremental or cfg.reset:
+        logger.info("Resetting dataset (wiping existing files and manifest)")
+        for p in (findings_path, red_path, blue_path, manifest_path, stats_path):
             if p.exists():
                 p.unlink()
+        
+        # Re-initialize manifest for a clean run
+        manifest = {
+            "processed_reports": [],
+            "skipped_files": [],
+            "total_findings": 0,
+            "config_used": {},
+        }
 
     processed_ids: set[str] = set(manifest["processed_reports"])
 
@@ -220,11 +229,16 @@ def main() -> None:
 
     # Optional: initialise Ollama enhancer once, before the main loop
     ollama_enhance = None
+    max_workers = 1
     if cfg.use_ollama_validation:
-        from ollama_enhancer import check_ollama_available, enhance_finding
+        from ollama_enhancer import check_ollama_available, enhance_finding, get_recommended_workers
         if check_ollama_available(cfg.ollama_model):
             ollama_enhance = enhance_finding
-            logger.info("Ollama enrichment enabled (model: %s)", cfg.ollama_model)
+            max_workers = get_recommended_workers(cfg.ollama_model)
+            logger.info(
+                "Ollama enrichment enabled (model: %s, threads: %d)", 
+                cfg.ollama_model, max_workers
+            )
         else:
             logger.warning(
                 "Ollama not available - continuing without enrichment. "
@@ -260,10 +274,24 @@ def main() -> None:
                 manifest["skipped_files"].append(fpath.as_posix())
                 continue
 
+            # Parallel enrichment via Ollama (if enabled)
+            if ollama_enhance is not None:
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    # Enrich findings in parallel for the current report
+                    futures = [
+                        executor.submit(ollama_enhance, rec, model=cfg.ollama_model)
+                        for rec in records
+                    ]
+                    records = [f.result() for f in futures]
+
             for rec in records:
-                if ollama_enhance is not None:
-                    rec = ollama_enhance(rec, model=cfg.ollama_model)
                 _write_finding(rec, fw, rw, bw)
+            
+            # Explicitly flush writers after each report to allow real-time monitoring
+            fw.flush()
+            rw.flush()
+            bw.flush()
 
             total_findings += len(records)
             processed_ids.add(report_id)

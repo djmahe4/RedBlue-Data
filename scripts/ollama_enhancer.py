@@ -21,6 +21,7 @@ import logging
 import re
 import urllib.error
 import urllib.request
+import time
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -90,10 +91,50 @@ def check_ollama_available(model: str = "llama3.2", timeout: int = 5) -> bool:
         return False
 
 
+def get_recommended_workers(model: str = "llama3.2") -> int:
+    """
+    Run a quick benchmark to recommend the number of concurrent workers.
+    Returns an integer (1-8).
+    """
+    try:
+        start = time.perf_counter()
+        # Simple test prompt
+        payload = json.dumps({
+            "model": model,
+            "prompt": "Respond with 'ok'.",
+            "stream": False,
+            "options": {"num_predict": 5}
+        }).encode("utf-8")
+        
+        req = urllib.request.Request(
+            f"{_OLLAMA_BASE_URL}/api/generate",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            json.loads(resp.read().decode("utf-8"))
+        
+        duration = time.perf_counter() - start
+        
+        if duration > 8.0:
+            return 1  # Very slow, likely CPU-bound or large model
+        elif duration > 3.0:
+            return 2  # Slow
+        elif duration > 1.0:
+            return 4  # Moderate
+        elif duration > 0.5:
+            return 6  # Fast
+        else:
+            return 8  # Very fast
+    except Exception:
+        return 1  # Fallback to safe sequential-like processing
+
+
 def enhance_finding(
     record: Dict[str, Any],
     model: str = "llama3.2",
-    timeout: int = 30,
+    timeout: int = 300,
 ) -> Dict[str, Any]:
     """
     Validate and enrich a single finding *record* using a local Ollama model.
@@ -135,6 +176,11 @@ def enhance_finding(
 def _build_prompt(record: Dict[str, Any]) -> str:
     title = record.get("title") or "(no title)"
     description = record.get("description") or "(no description)"
+    
+    # Truncate description to avoid hitting context limits or causing slow generation
+    if len(description) > 1500:
+        description = description[:1500] + "... [truncated]"
+
     current_cwe = record.get("cwe") or "Unknown"
     current_owasp = record.get("owasp") or "Unknown"
     current_severity = record.get("severity") or "Unknown"
@@ -155,23 +201,34 @@ def _build_prompt(record: Dict[str, Any]) -> str:
     )
 
 
-def _parse_json_response(raw: str) -> Optional[Dict[str, Any]]:
+def _parse_json_response(raw: str, finding_id: str = "unknown") -> Optional[Dict[str, Any]]:
     """
-    Try to parse *raw* as JSON.  Falls back to extracting the first
+    Try to parse *raw* as JSON. Falls back to extracting the first
     ``{...}`` block if the model wraps output in markdown or prose.
     """
     raw = raw.strip()
+    
+    # Pre-processing: strip markdown code blocks if the model ignored "ONLY" instruction
+    if raw.startswith("```"):
+        # Remove ```json or just ``` from start and ``` from end
+        raw = re.sub(r"^```(?:json)?\n?", "", raw)
+        raw = re.sub(r"\n?```$", "", raw)
+        raw = raw.strip()
+
     try:
         return json.loads(raw)
     except json.JSONDecodeError:
         pass
-    # Extract first JSON object from the response
+
+    # Extract first JSON object from the response (matches across newlines)
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
         except json.JSONDecodeError:
             pass
+    
+    logger.debug("Failed to parse Ollama response for %s. Raw: %r", finding_id, raw)
     return None
 
 
@@ -188,6 +245,7 @@ def _call_ollama(
             "model": model,
             "prompt": prompt,
             "stream": False,
+            "format": "json",  # Forces Ollama to output valid JSON
             "options": {"temperature": 0.1, "num_predict": 512},
         }
     ).encode("utf-8")
@@ -203,7 +261,7 @@ def _call_ollama(
         body = json.loads(resp.read().decode("utf-8"))
 
     raw_response: str = body.get("response", "")
-    enriched = _parse_json_response(raw_response)
+    enriched = _parse_json_response(raw_response, finding_id=record.get("finding_id", "unknown"))
 
     if enriched is None:
         logger.warning(

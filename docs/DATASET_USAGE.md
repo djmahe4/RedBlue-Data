@@ -45,6 +45,9 @@ Each line is a JSON object with the following fields:
 | `owasp` | string\|null | e.g. `A03:2021` |
 | `severity` | string\|null | `critical`, `high`, `medium`, `low`, `info` |
 | `cvss_score` | string\|null | Numeric CVSS score (if present) |
+| `enhanced_description` | string\|null | Optional technical description (Ollama) |
+| `attack_vector` | string\|null | Optional exploit scenario (Ollama) |
+| `quality_score` | integer\|null | Optional finding richness score (1-10) |
 
 ### `red_team.jsonl`
 

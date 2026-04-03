@@ -22,6 +22,7 @@ class Config:
     min_words: int
     use_ollama_validation: bool
     ollama_model: str
+    reset: bool
 
     def print_config(self) -> None:
         print("=== Pipeline Configuration ===")
@@ -51,6 +52,7 @@ class Config:
             "min_words": self.min_words,
             "use_ollama_validation": self.use_ollama_validation,
             "ollama_model": self.ollama_model,
+            "reset": self.reset,
         }
 
 
@@ -135,6 +137,12 @@ def get_config(argv: list | None = None) -> Config:
         type=str,
         default=None,
         help="Ollama model name to use for enrichment (env: OLLAMA_MODEL)",
+    )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        default=False,
+        help="Wipe all existing output files and manifest before starting (env: RESET=true)",
     )
 
     args = parser.parse_args(argv)
@@ -222,6 +230,8 @@ def get_config(argv: list | None = None) -> Config:
     else:
         ollama_model = "llama3.2"
 
+    reset: bool = args.reset or _parse_bool(os.environ.get("RESET", "false"))
+
     return Config(
         max_reports=max_reports,
         max_file_size_mb=max_file_size_mb,
@@ -234,4 +244,5 @@ def get_config(argv: list | None = None) -> Config:
         min_words=min_words,
         use_ollama_validation=use_ollama_validation,
         ollama_model=ollama_model,
+        reset=reset,
     )

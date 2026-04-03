@@ -250,3 +250,21 @@ class TestJSONLWriter:
         line = out.read_text(encoding="utf-8").strip()
         assert json.loads(line)["msg"] == "héllo wörld"
 
+    def test_buffering_and_flush(self, tmp_path):
+        out = tmp_path / "out.jsonl"
+        # Using buffer_size=10
+        with JSONLWriter(out, buffer_size=10) as writer:
+            writer.write({"a": 1})
+            # File should be empty initially due to buffering
+            assert out.stat().st_size == 0
+            writer.flush()
+            # File should have data after explicit flush
+            assert out.stat().st_size > 0
+            
+            # Fill buffer
+            for i in range(10):
+                writer.write({"v": i})
+            # Should have auto-flushed
+            lines = out.read_text(encoding="utf-8").splitlines()
+            assert len(lines) >= 11
+

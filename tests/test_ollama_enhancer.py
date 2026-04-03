@@ -20,6 +20,7 @@ from ollama_enhancer import (
     _parse_json_response,
     check_ollama_available,
     enhance_finding,
+    get_recommended_workers,
 )
 
 # ---------------------------------------------------------------------------
@@ -87,6 +88,12 @@ class TestParseJsonResponse:
         assert result is not None
         assert result["a"] == 1
 
+    def test_json_wrapped_in_bare_markdown(self):
+        raw = "```\n{\"b\": 2}\n```"
+        result = _parse_json_response(raw)
+        assert result is not None
+        assert result["b"] == 2
+
     def test_returns_none_on_garbage(self):
         assert _parse_json_response("not json at all") is None
 
@@ -95,6 +102,35 @@ class TestParseJsonResponse:
         result = _parse_json_response(raw)
         assert result is not None
         assert result["key"] == "value"
+
+
+# ---------------------------------------------------------------------------
+# get_recommended_workers
+# ---------------------------------------------------------------------------
+
+class TestGetRecommendedWorkers:
+    @patch("time.perf_counter")
+    @patch("urllib.request.urlopen")
+    def test_returns_low_workers_for_slow_server(self, mock_urlopen, mock_time):
+        mock_time.side_effect = [0.0, 10.0]  # 10s duration
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = b'{"response": "ok"}'
+        mock_urlopen.return_value = mock_resp
+
+        assert get_recommended_workers() == 1
+
+    @patch("time.perf_counter")
+    @patch("urllib.request.urlopen")
+    def test_returns_high_workers_for_fast_server(self, mock_urlopen, mock_time):
+        mock_time.side_effect = [0.0, 0.1]  # 0.1s duration
+        mock_resp = MagicMock()
+        mock_resp.__enter__.return_value = mock_resp
+        mock_resp.read.return_value = b'{"response": "ok"}'
+        mock_urlopen.return_value = mock_resp
+
+        # Benchmark should return 8 for < 0.5s
+        assert get_recommended_workers() == 8
 
 
 # ---------------------------------------------------------------------------

@@ -71,9 +71,11 @@ class JSONLWriter:
                 writer.write(record)
     """
 
-    def __init__(self, filepath: Path, mode: str = "a") -> None:
+    def __init__(self, filepath: Path, mode: str = "a", buffer_size: int = 50) -> None:
         self._filepath = filepath
         self._mode = mode
+        self._buffer_size = buffer_size
+        self._buffer: list[str] = []
         self._fh: Optional[IO[str]] = None
 
     def __enter__(self) -> "JSONLWriter":
@@ -87,14 +89,25 @@ class JSONLWriter:
         exc_tb: Optional[TracebackType],
     ) -> None:
         if self._fh is not None:
+            self.flush()
             self._fh.close()
             self._fh = None
 
     def write(self, record: Dict[str, Any]) -> None:
-        """Serialize *record* as a JSON line and write it to the open file."""
+        """Serialize *record* as a JSON line and add it to the buffer."""
         if self._fh is None:
             raise RuntimeError("JSONLWriter must be used as a context manager")
-        self._fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        
+        self._buffer.append(json.dumps(record, ensure_ascii=False) + "\n")
+        if len(self._buffer) >= self._buffer_size:
+            self.flush()
+
+    def flush(self) -> None:
+        """Write current buffer contents to disk."""
+        if self._fh and self._buffer:
+            self._fh.write("".join(self._buffer))
+            self._fh.flush()  # Force OS level flush
+            self._buffer = []
 
 
 def append_jsonl(record: Dict[str, Any], filepath: Path) -> None:

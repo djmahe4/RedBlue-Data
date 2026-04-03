@@ -59,10 +59,11 @@ reports-source/           (cloned from juliocesarfort/public-pentesting-reports)
 |--------|----------------|
 | `config.py` | CLI + ENV + defaults configuration system |
 | `utils.py` | Hashing, file I/O, privacy masking, JSONL helpers |
-| `extract_text.py` | Text extraction per file type |
+| `extract_text.py` | Text extraction per file type (including OCR fallback) |
 | `segment_report.py` | Structural segmentation of report text |
 | `split_findings.py` | Finding extraction and structuring |
 | `heuristics.py` | Vulnerability classification |
+| `ollama_enhancer.py` | Optional LLM enrichment of findings |
 | `process_reports.py` | Orchestration and dataset writing |
 
 ---
@@ -84,6 +85,11 @@ All thresholds are configurable:
 | source_repo | `--source_repo` | `SOURCE_REPO` | (juliocesarfort repo) |
 | incremental | `--no_incremental` | `INCREMENTAL=false` | true |
 | full_run | `--full_run` | `FULL_RUN=true` | false |
+| skip_ocr | `--skip_ocr` | `SKIP_OCR` | false |
+| min_words | `--min_words` | `MIN_WORDS` | 20 |
+| use_ollama | `--use_ollama` | `OLLAMA_ENABLED` | false |
+| ollama_model | `--ollama_model` | `OLLAMA_MODEL` | llama3 |
+| reset | `--reset` | `RESET` | false |
 
 ---
 
@@ -95,7 +101,8 @@ skip already-processed reports. This makes re-runs fast and idempotent.
 To force a full reprocess:
 
 ```bash
-python scripts/process_reports.py --no_incremental
+# Restart everything including wiping manifest.json
+python scripts/process_reports.py --reset
 ```
 
 ---
