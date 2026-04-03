@@ -44,7 +44,7 @@ def file_size_mb(path: Path) -> float:
 
 def compute_report_id(path: Path) -> str:
     """Stable SHA-256-based report identifier derived from the file path."""
-    return hashlib.sha256(str(path).encode()).hexdigest()[:16]
+    return hashlib.sha256(path.as_posix().encode()).hexdigest()[:16]
 
 
 def ensure_dir(path: str | Path) -> Path:
