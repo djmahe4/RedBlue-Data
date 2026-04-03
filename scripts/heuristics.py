@@ -28,7 +28,6 @@ _RULES: List[Tuple[re.Pattern, str, str, str]] = [
     (re.compile(r"\binformation\s+disc?los(ure|ure)\b", re.I), "InfoDisclosure", "CWE-200", "A02:2021"),
     (re.compile(r"\bhard[\s\-]?coded\s+(cred|password|secret|key)\b", re.I), "HardcodedCreds", "CWE-798", "A02:2021"),
     (re.compile(r"\bweak\s+(crypto|cipher|hash|encryption)\b", re.I), "WeakCrypto", "CWE-327", "A02:2021"),
-    (re.compile(r"\binsecure\s+deserialization\b", re.I), "Deserialization", "CWE-502", "A08:2021"),
     (re.compile(r"\bmissing\s+(authentication|authorization)\b", re.I), "MissingAuth", "CWE-306", "A07:2021"),
     (re.compile(r"\bcve[\s\-]\d{4}[\s\-]\d+\b", re.I), "KnownCVE", "CWE-1035", "A06:2021"),
 ]

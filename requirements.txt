@@ -5,3 +5,6 @@ lxml>=5.1.0
 pytest>=8.0.0
 pytesseract>=0.3.10
 Pillow>=10.0.0
+# Optional: install 'ollama' client for typed model listing (not required;
+# ollama_enhancer.py uses only the stdlib urllib for HTTP calls).
+# ollama>=0.1.0

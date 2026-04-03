@@ -19,17 +19,23 @@ class Config:
     incremental: bool
     full_run: bool
     skip_ocr: bool
+    min_words: int
+    use_ollama_validation: bool
+    ollama_model: str
 
     def print_config(self) -> None:
         print("=== Pipeline Configuration ===")
-        print(f"  max_reports       : {self.max_reports}")
-        print(f"  max_file_size_mb  : {self.max_file_size_mb}")
-        print(f"  allowed_extensions: {self.allowed_extensions}")
-        print(f"  output_dir        : {self.output_dir}")
-        print(f"  source_repo       : {self.source_repo}")
-        print(f"  incremental       : {self.incremental}")
-        print(f"  full_run          : {self.full_run}")
-        print(f"  skip_ocr          : {self.skip_ocr}")
+        print(f"  max_reports          : {self.max_reports}")
+        print(f"  max_file_size_mb     : {self.max_file_size_mb}")
+        print(f"  allowed_extensions   : {self.allowed_extensions}")
+        print(f"  output_dir           : {self.output_dir}")
+        print(f"  source_repo          : {self.source_repo}")
+        print(f"  incremental          : {self.incremental}")
+        print(f"  full_run             : {self.full_run}")
+        print(f"  skip_ocr             : {self.skip_ocr}")
+        print(f"  min_words            : {self.min_words}")
+        print(f"  use_ollama_validation: {self.use_ollama_validation}")
+        print(f"  ollama_model         : {self.ollama_model}")
         print("==============================")
 
     def as_dict(self) -> dict:
@@ -42,6 +48,9 @@ class Config:
             "incremental": self.incremental,
             "full_run": self.full_run,
             "skip_ocr": self.skip_ocr,
+            "min_words": self.min_words,
+            "use_ollama_validation": self.use_ollama_validation,
+            "ollama_model": self.ollama_model,
         }
 
 
@@ -109,6 +118,24 @@ def get_config(argv: list | None = None) -> Config:
         default=False,
         help="Skip OCR for scanned PDFs (env: SKIP_OCR)",
     )
+    parser.add_argument(
+        "--min_words",
+        type=int,
+        default=None,
+        help="Minimum word count for extracted text to be processed (env: MIN_WORDS)",
+    )
+    parser.add_argument(
+        "--use_ollama",
+        action="store_true",
+        default=False,
+        help="Enable optional Ollama post-processing for finding enrichment (env: OLLAMA_ENABLED)",
+    )
+    parser.add_argument(
+        "--ollama_model",
+        type=str,
+        default=None,
+        help="Ollama model name to use for enrichment (env: OLLAMA_MODEL)",
+    )
 
     args = parser.parse_args(argv)
 
@@ -171,6 +198,30 @@ def get_config(argv: list | None = None) -> Config:
     else:
         skip_ocr = False
 
+    min_words: int
+    if args.min_words is not None:
+        min_words = args.min_words
+    elif os.environ.get("MIN_WORDS"):
+        min_words = int(os.environ["MIN_WORDS"])
+    else:
+        min_words = 20
+
+    use_ollama_validation: bool
+    if args.use_ollama:
+        use_ollama_validation = True
+    elif os.environ.get("OLLAMA_ENABLED"):
+        use_ollama_validation = _parse_bool(os.environ["OLLAMA_ENABLED"])
+    else:
+        use_ollama_validation = False
+
+    ollama_model: str
+    if args.ollama_model is not None:
+        ollama_model = args.ollama_model
+    elif os.environ.get("OLLAMA_MODEL"):
+        ollama_model = os.environ["OLLAMA_MODEL"]
+    else:
+        ollama_model = "llama3.2"
+
     return Config(
         max_reports=max_reports,
         max_file_size_mb=max_file_size_mb,
@@ -180,4 +231,7 @@ def get_config(argv: list | None = None) -> Config:
         incremental=incremental,
         full_run=full_run,
         skip_ocr=skip_ocr,
+        min_words=min_words,
+        use_ollama_validation=use_ollama_validation,
+        ollama_model=ollama_model,
     )

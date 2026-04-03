@@ -23,7 +23,7 @@ from heuristics import classify_finding
 from segment_report import segment_report
 from split_findings import split_findings
 from utils import (
-    append_jsonl,
+    JSONLWriter,
     compute_report_id,
     ensure_dir,
     file_size_mb,
@@ -101,13 +101,13 @@ def process_report(
         logger.warning("No text extracted from %s", fpath)
         return []
 
-    # Simple heuristic: discard OCR results that are clearly garbage
-    # (e.g. image-only pages with watermarks or noise that yielded < 20 words)
-    MIN_WORDS = 20
-    if len(raw_text.split()) < MIN_WORDS:
+    # Discard results that are clearly garbage (e.g. image-only pages that
+    # yielded mostly noise). The threshold is fully configurable via cfg.min_words.
+    word_count = len(raw_text.split())
+    if word_count < cfg.min_words:
         logger.warning(
-            "Extracted text too short (%d words, min %d) from %s — likely OCR noise, skipping",
-            len(raw_text.split()), MIN_WORDS, fpath,
+            "Extracted text too short (%d words, min %d) from %s - likely OCR noise, skipping",
+            word_count, cfg.min_words, fpath,
         )
         return []
 
@@ -124,7 +124,7 @@ def process_report(
             "report_id": report_id,
             "finding_id": f"{report_id}_{idx:04d}",
             "vendor": vendor,
-            "source_file": str(fpath),
+            "source_file": fpath.as_posix(),
             "file_type": fpath.suffix.lower().lstrip("."),
             "file_size_mb": round(size_mb, 4),
             "exec_summary": segments.get("exec_summary") or None,
@@ -143,8 +143,14 @@ def process_report(
 # Dataset writers
 # ---------------------------------------------------------------------------
 
-def _write_finding(record: dict, findings_path: Path, red_path: Path, blue_path: Path) -> None:
-    append_jsonl(record, findings_path)
+def _write_finding(
+    record: dict,
+    findings_writer: JSONLWriter,
+    red_writer: JSONLWriter,
+    blue_writer: JSONLWriter,
+) -> None:
+    """Write one finding record to all three dataset files via open writers."""
+    findings_writer.write(record)
 
     title = record.get("title") or ""
     description = record.get("description") or ""
@@ -160,7 +166,7 @@ def _write_finding(record: dict, findings_path: Path, red_path: Path, blue_path:
             "vuln_type": record.get("vuln_type"),
             "severity": record.get("severity"),
         }
-        append_jsonl(red_record, red_path)
+        red_writer.write(red_record)
 
         blue_record = {
             "instruction": "Provide a secure fix and remediation guidance for the following vulnerability.",
@@ -170,7 +176,7 @@ def _write_finding(record: dict, findings_path: Path, red_path: Path, blue_path:
             "vuln_type": record.get("vuln_type"),
             "severity": record.get("severity"),
         }
-        append_jsonl(blue_record, blue_path)
+        blue_writer.write(blue_record)
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +218,20 @@ def main() -> None:
         )
         sys.exit(1)
 
+    # Optional: initialise Ollama enhancer once, before the main loop
+    ollama_enhance = None
+    if cfg.use_ollama_validation:
+        from ollama_enhancer import check_ollama_available, enhance_finding
+        if check_ollama_available(cfg.ollama_model):
+            ollama_enhance = enhance_finding
+            logger.info("Ollama enrichment enabled (model: %s)", cfg.ollama_model)
+        else:
+            logger.warning(
+                "Ollama not available - continuing without enrichment. "
+                "Start Ollama and pull model '%s' to enable it.",
+                cfg.ollama_model,
+            )
+
     candidates = _find_report_files(source_dir, cfg)
     logger.info("Found %d candidate report files", len(candidates))
 
@@ -219,33 +239,36 @@ def main() -> None:
     total_findings = manifest.get("total_findings", 0)
     max_r = len(candidates) if cfg.full_run else cfg.max_reports
 
-    for fpath in candidates:
-        if reports_processed >= max_r:
-            logger.info("Reached max_reports limit (%d)", max_r)
-            break
+    with JSONLWriter(findings_path) as fw, JSONLWriter(red_path) as rw, JSONLWriter(blue_path) as bw:
+        for fpath in candidates:
+            if reports_processed >= max_r:
+                logger.info("Reached max_reports limit (%d)", max_r)
+                break
 
-        report_id = compute_report_id(fpath)
-        if report_id in processed_ids:
-            logger.debug("Skipping already-processed report: %s", fpath.name)
-            continue
+            report_id = compute_report_id(fpath)
+            if report_id in processed_ids:
+                logger.debug("Skipping already-processed report: %s", fpath.name)
+                continue
 
-        size_mb = file_size_mb(fpath)
-        if size_mb > cfg.max_file_size_mb:
-            manifest["skipped_files"].append(str(fpath))
-            continue
+            size_mb = file_size_mb(fpath)
+            if size_mb > cfg.max_file_size_mb:
+                manifest["skipped_files"].append(fpath.as_posix())
+                continue
 
-        records = process_report(fpath, source_dir, cfg)
-        if not records:
-            manifest["skipped_files"].append(str(fpath))
-            continue
+            records = process_report(fpath, source_dir, cfg)
+            if not records:
+                manifest["skipped_files"].append(fpath.as_posix())
+                continue
 
-        for rec in records:
-            _write_finding(rec, findings_path, red_path, blue_path)
+            for rec in records:
+                if ollama_enhance is not None:
+                    rec = ollama_enhance(rec, model=cfg.ollama_model)
+                _write_finding(rec, fw, rw, bw)
 
-        total_findings += len(records)
-        processed_ids.add(report_id)
-        manifest["processed_reports"].append(report_id)
-        reports_processed += 1
+            total_findings += len(records)
+            processed_ids.add(report_id)
+            manifest["processed_reports"].append(report_id)
+            reports_processed += 1
 
     manifest["total_findings"] = total_findings
     manifest["config_used"] = cfg.as_dict()

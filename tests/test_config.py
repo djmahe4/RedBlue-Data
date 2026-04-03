@@ -96,3 +96,68 @@ class TestConfigAsDict:
         for k in ("max_reports", "max_file_size_mb", "allowed_extensions",
                   "output_dir", "source_repo", "incremental", "full_run"):
             assert k in d
+
+    def test_as_dict_includes_new_fields(self, monkeypatch):
+        for key in ("MIN_WORDS", "OLLAMA_ENABLED", "OLLAMA_MODEL"):
+            monkeypatch.delenv(key, raising=False)
+
+        cfg = get_config([])
+        d = cfg.as_dict()
+        assert "min_words" in d
+        assert "use_ollama_validation" in d
+        assert "ollama_model" in d
+
+
+class TestMinWordsConfig:
+    def test_default_min_words(self, monkeypatch):
+        monkeypatch.delenv("MIN_WORDS", raising=False)
+        cfg = get_config([])
+        assert cfg.min_words == 20
+
+    def test_cli_min_words(self, monkeypatch):
+        monkeypatch.delenv("MIN_WORDS", raising=False)
+        cfg = get_config(["--min_words", "50"])
+        assert cfg.min_words == 50
+
+    def test_env_min_words(self, monkeypatch):
+        monkeypatch.setenv("MIN_WORDS", "10")
+        cfg = get_config([])
+        assert cfg.min_words == 10
+
+    def test_cli_overrides_env_min_words(self, monkeypatch):
+        monkeypatch.setenv("MIN_WORDS", "10")
+        cfg = get_config(["--min_words", "5"])
+        assert cfg.min_words == 5
+
+
+class TestOllamaConfig:
+    def test_ollama_disabled_by_default(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_ENABLED", raising=False)
+        cfg = get_config([])
+        assert cfg.use_ollama_validation is False
+
+    def test_ollama_enabled_via_cli(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_ENABLED", raising=False)
+        cfg = get_config(["--use_ollama"])
+        assert cfg.use_ollama_validation is True
+
+    def test_ollama_enabled_via_env(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_ENABLED", "true")
+        cfg = get_config([])
+        assert cfg.use_ollama_validation is True
+
+    def test_default_ollama_model(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        cfg = get_config([])
+        assert cfg.ollama_model == "llama3.2"
+
+    def test_ollama_model_via_cli(self, monkeypatch):
+        monkeypatch.delenv("OLLAMA_MODEL", raising=False)
+        cfg = get_config(["--ollama_model", "mistral"])
+        assert cfg.ollama_model == "mistral"
+
+    def test_ollama_model_via_env(self, monkeypatch):
+        monkeypatch.setenv("OLLAMA_MODEL", "codellama")
+        cfg = get_config([])
+        assert cfg.ollama_model == "codellama"
+

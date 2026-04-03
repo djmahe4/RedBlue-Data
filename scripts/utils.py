@@ -8,7 +8,8 @@ import json
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict
+from types import TracebackType
+from typing import Any, Dict, IO, Optional, Type
 
 # ---------------------------------------------------------------------------
 # Privacy masking patterns
@@ -43,7 +44,7 @@ def file_size_mb(path: Path) -> float:
 
 
 def compute_report_id(path: Path) -> str:
-    """Stable SHA-256-based report identifier derived from the file path."""
+    """Stable SHA-256-based report identifier derived from the file path (cross-platform)."""
     return hashlib.sha256(path.as_posix().encode()).hexdigest()[:16]
 
 
@@ -58,8 +59,50 @@ def ensure_dir(path: str | Path) -> Path:
 # JSONL helpers
 # ---------------------------------------------------------------------------
 
+class JSONLWriter:
+    """
+    Context-managed JSONL writer that keeps the file handle open for the
+    duration of a processing batch, avoiding repeated open/close overhead.
+
+    Usage::
+
+        with JSONLWriter(output_path) as writer:
+            for record in records:
+                writer.write(record)
+    """
+
+    def __init__(self, filepath: Path, mode: str = "a") -> None:
+        self._filepath = filepath
+        self._mode = mode
+        self._fh: Optional[IO[str]] = None
+
+    def __enter__(self) -> "JSONLWriter":
+        self._fh = open(self._filepath, self._mode, encoding="utf-8")
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        if self._fh is not None:
+            self._fh.close()
+            self._fh = None
+
+    def write(self, record: Dict[str, Any]) -> None:
+        """Serialize *record* as a JSON line and write it to the open file."""
+        if self._fh is None:
+            raise RuntimeError("JSONLWriter must be used as a context manager")
+        self._fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
 def append_jsonl(record: Dict[str, Any], filepath: Path) -> None:
-    """Append a single JSON record as a line to a JSONL file."""
+    """Append a single JSON record as a line to a JSONL file.
+
+    For writing many records in a tight loop, prefer :class:`JSONLWriter`
+    to avoid repeated file open/close overhead.
+    """
     with open(filepath, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 

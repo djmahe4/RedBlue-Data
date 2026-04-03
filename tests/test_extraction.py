@@ -12,7 +12,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from extract_text import _extract_md, _extract_html, _extract_pdf, _ocr_pages
-from utils import mask_sensitive, file_size_mb, compute_report_id, ensure_dir
+from utils import mask_sensitive, file_size_mb, compute_report_id, ensure_dir, JSONLWriter
 
 
 def _make_text_pdf(tmp_path: Path, text: str = "Hello pentest world") -> Path:
@@ -200,3 +200,53 @@ class TestMinWordsHeuristic:
                     str(c) for c in mock_log.warning.call_args_list
                 ]
                 assert not any("too short" in m for m in logged_msgs)
+
+
+class TestJSONLWriter:
+    def test_writes_records_to_file(self, tmp_path):
+        out = tmp_path / "out.jsonl"
+        records = [{"a": 1}, {"b": 2}, {"c": 3}]
+        with JSONLWriter(out) as writer:
+            for rec in records:
+                writer.write(rec)
+
+        lines = out.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 3
+        assert {"a": 1} == __import__("json").loads(lines[0])
+
+    def test_appends_on_successive_opens(self, tmp_path):
+        out = tmp_path / "out.jsonl"
+        with JSONLWriter(out) as writer:
+            writer.write({"x": 1})
+        with JSONLWriter(out) as writer:
+            writer.write({"x": 2})
+
+        lines = out.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 2
+
+    def test_truncates_in_write_mode(self, tmp_path):
+        out = tmp_path / "out.jsonl"
+        with JSONLWriter(out) as writer:
+            writer.write({"x": 1})
+            writer.write({"x": 2})
+        with JSONLWriter(out, mode="w") as writer:
+            writer.write({"x": 3})
+
+        lines = out.read_text(encoding="utf-8").splitlines()
+        assert len(lines) == 1
+
+    def test_raises_when_not_entered(self, tmp_path):
+        out = tmp_path / "out.jsonl"
+        writer = JSONLWriter(out)
+        with pytest.raises(RuntimeError):
+            writer.write({"x": 1})
+
+    def test_unicode_preserved(self, tmp_path):
+        out = tmp_path / "out.jsonl"
+        with JSONLWriter(out) as writer:
+            writer.write({"msg": "héllo wörld"})
+
+        import json
+        line = out.read_text(encoding="utf-8").strip()
+        assert json.loads(line)["msg"] == "héllo wörld"
+
