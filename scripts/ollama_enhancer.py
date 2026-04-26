@@ -9,6 +9,18 @@ Graceful fallback: every public function logs a warning and returns the
 original data unchanged when Ollama is unavailable or returns an error.
 No CI/CD dependencies are introduced; this is a developer-only feature.
 
+Modes
+-----
+1. **Validation/Correction mode** (``enhance_finding``):
+   Validate existing heuristic labels, suggest enriched descriptions and fixes.
+2. **Semantic mapping mode** (``map_external_record``):
+   Convert an arbitrary external-dataset record to the unified RedBlue schema.
+
+Caching
+-------
+LLM responses are cached on disk (JSON, keyed by SHA-256 of the prompt) to
+avoid redundant API calls across runs.  Set ``cache_dir=None`` to disable.
+
 Usage example::
 
     python scripts/process_reports.py --use_ollama --ollama_model llama3.2
@@ -16,17 +28,24 @@ Usage example::
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
+import os
 import re
 import urllib.error
 import urllib.request
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 _OLLAMA_BASE_URL = "http://localhost:11434"
+
+# Default on-disk cache directory. Set to None to disable caching (default).
+# Pass an explicit Path to enable: enhance_finding(..., cache_dir=Path(".ollama_cache"))
+_DEFAULT_CACHE_DIR: Optional[Path] = None
 
 # Recommended cybersecurity-focused models in preference order.
 RECOMMENDED_MODELS = [
@@ -37,7 +56,7 @@ RECOMMENDED_MODELS = [
     "codellama",
 ]
 
-# JSON schema that the model is asked to fill in.
+# JSON schema that the model is asked to fill in for validation/correction mode.
 _RESPONSE_SCHEMA = """\
 {
   "cwe": "<corrected CWE ID e.g. CWE-89, or keep original>",
@@ -49,6 +68,71 @@ _RESPONSE_SCHEMA = """\
   "remediation": "<specific remediation steps in 2-3 sentences>",
   "quality_score": <integer 1-10 reflecting finding richness>
 }"""
+
+# JSON schema for semantic mapping (external records → unified schema).
+_MAPPING_SCHEMA = """\
+{
+  "vuln_type": "<concise vulnerability type label or null>",
+  "cwe": "<CWE ID e.g. CWE-89, or null>",
+  "owasp": "<OWASP Top 10 category e.g. A03:2021, or null>",
+  "severity": "<one of: critical|high|medium|low|info, or null>",
+  "title": "<short vulnerability title or null>",
+  "description": "<vulnerability description or null>",
+  "recommendation": "<remediation guidance or null>",
+  "red_suitable": <true if record is useful for offensive/red-team training>,
+  "blue_suitable": <true if record is useful for defensive/blue-team training>,
+  "confidence": <integer 1-10 reflecting mapping confidence>
+}"""
+
+# Few-shot examples for the mapping prompt.
+_MAPPING_FEW_SHOT = """
+Example 1:
+External record: {"instruction": "Explain SQL injection", "response": "SQL injection allows ..."}
+Output: {"vuln_type": "SQLi", "cwe": "CWE-89", "owasp": "A03:2021", "severity": "high",
+         "title": "SQL Injection", "description": "SQL injection allows ...", "recommendation": null,
+         "red_suitable": true, "blue_suitable": true, "confidence": 9}
+
+Example 2:
+External record: {"question": "What is XSS?", "answer": "Cross-site scripting is ..."}
+Output: {"vuln_type": "XSS", "cwe": "CWE-79", "owasp": "A03:2021", "severity": "medium",
+         "title": "Cross-Site Scripting", "description": "Cross-site scripting is ...", "recommendation": null,
+         "red_suitable": true, "blue_suitable": true, "confidence": 8}
+"""
+
+
+# ---------------------------------------------------------------------------
+# Response cache helpers
+# ---------------------------------------------------------------------------
+
+def _cache_key(prompt: str, model: str = "") -> str:
+    return hashlib.sha256(f"{model}:{prompt}".encode("utf-8")).hexdigest()
+
+
+def _load_cached(prompt: str, cache_dir: Optional[Path], model: str = "") -> Optional[Dict[str, Any]]:
+    if cache_dir is None:
+        return None
+    key = _cache_key(prompt, model)
+    cache_file = cache_dir / f"{key}.json"
+    if cache_file.exists():
+        try:
+            with open(cache_file, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception:
+            pass
+    return None
+
+
+def _save_cached(prompt: str, result: Dict[str, Any], cache_dir: Optional[Path], model: str = "") -> None:
+    if cache_dir is None:
+        return
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    key = _cache_key(prompt, model)
+    cache_file = cache_dir / f"{key}.json"
+    try:
+        with open(cache_file, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, ensure_ascii=False)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -98,14 +182,13 @@ def get_recommended_workers(model: str = "llama3.2") -> int:
     """
     try:
         start = time.perf_counter()
-        # Simple test prompt
         payload = json.dumps({
             "model": model,
             "prompt": "Respond with 'ok'.",
             "stream": False,
             "options": {"num_predict": 5}
         }).encode("utf-8")
-        
+
         req = urllib.request.Request(
             f"{_OLLAMA_BASE_URL}/api/generate",
             data=payload,
@@ -114,27 +197,28 @@ def get_recommended_workers(model: str = "llama3.2") -> int:
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
             json.loads(resp.read().decode("utf-8"))
-        
+
         duration = time.perf_counter() - start
-        
+
         if duration > 8.0:
-            return 1  # Very slow, likely CPU-bound or large model
+            return 1
         elif duration > 3.0:
-            return 2  # Slow
+            return 2
         elif duration > 1.0:
-            return 4  # Moderate
+            return 4
         elif duration > 0.5:
-            return 6  # Fast
+            return 6
         else:
-            return 8  # Very fast
+            return 8
     except Exception:
-        return 1  # Fallback to safe sequential-like processing
+        return 1
 
 
 def enhance_finding(
     record: Dict[str, Any],
     model: str = "llama3.2",
     timeout: int = 300,
+    cache_dir: Optional[Path] = _DEFAULT_CACHE_DIR,
 ) -> Dict[str, Any]:
     """
     Validate and enrich a single finding *record* using a local Ollama model.
@@ -157,9 +241,11 @@ def enhance_finding(
         Ollama model name (default: ``"llama3.2"``).
     timeout:
         HTTP timeout in seconds for the Ollama API call.
+    cache_dir:
+        Directory for on-disk LLM response cache.  Pass ``None`` to disable.
     """
     try:
-        return _call_ollama(record, model=model, timeout=timeout)
+        return _call_ollama(record, model=model, timeout=timeout, cache_dir=cache_dir)
     except Exception as exc:
         logger.warning(
             "Ollama enhancement failed for %s: %s - using heuristic-only data",
@@ -169,6 +255,37 @@ def enhance_finding(
         return record
 
 
+def map_external_record(
+    record: Dict[str, Any],
+    model: str = "llama3.2",
+    timeout: int = 300,
+    cache_dir: Optional[Path] = _DEFAULT_CACHE_DIR,
+) -> Optional[Dict[str, Any]]:
+    """
+    Semantic mapping mode: convert an external dataset record to the unified
+    RedBlue schema fields using the Ollama LLM.
+
+    Returns a dict with mapped fields or ``None`` on failure (caller should
+    fall back to heuristic mapping).
+
+    Parameters
+    ----------
+    record:
+        Arbitrary dict from an external dataset.
+    model:
+        Ollama model name.
+    timeout:
+        HTTP timeout in seconds.
+    cache_dir:
+        Directory for on-disk LLM response cache.
+    """
+    try:
+        return _call_ollama_mapping(record, model=model, timeout=timeout, cache_dir=cache_dir)
+    except Exception as exc:
+        logger.debug("Ollama semantic mapping failed: %s", exc)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -176,8 +293,7 @@ def enhance_finding(
 def _build_prompt(record: Dict[str, Any]) -> str:
     title = record.get("title") or "(no title)"
     description = record.get("description") or "(no description)"
-    
-    # Truncate description to avoid hitting context limits or causing slow generation
+
     if len(description) > 1500:
         description = description[:1500] + "... [truncated]"
 
@@ -201,16 +317,31 @@ def _build_prompt(record: Dict[str, Any]) -> str:
     )
 
 
+def _build_mapping_prompt(record: Dict[str, Any]) -> str:
+    # Represent the external record as compact JSON, truncated for safety
+    raw = json.dumps(record, ensure_ascii=False)
+    if len(raw) > 2000:
+        raw = raw[:2000] + "... [truncated]"
+
+    return (
+        "You are a cybersecurity data engineer mapping an external dataset record "
+        "to a unified schema.\n"
+        "Respond ONLY with a valid JSON object - no markdown fences, no explanation.\n\n"
+        f"Few-shot examples:{_MAPPING_FEW_SHOT}\n"
+        f"External record to map:\n{raw}\n\n"
+        "Fill in this exact JSON structure:\n"
+        f"{_MAPPING_SCHEMA}"
+    )
+
+
 def _parse_json_response(raw: str, finding_id: str = "unknown") -> Optional[Dict[str, Any]]:
     """
     Try to parse *raw* as JSON. Falls back to extracting the first
     ``{...}`` block if the model wraps output in markdown or prose.
     """
     raw = raw.strip()
-    
-    # Pre-processing: strip markdown code blocks if the model ignored "ONLY" instruction
+
     if raw.startswith("```"):
-        # Remove ```json or just ``` from start and ``` from end
         raw = re.sub(r"^```(?:json)?\n?", "", raw)
         raw = re.sub(r"\n?```$", "", raw)
         raw = raw.strip()
@@ -220,32 +351,25 @@ def _parse_json_response(raw: str, finding_id: str = "unknown") -> Optional[Dict
     except json.JSONDecodeError:
         pass
 
-    # Extract first JSON object from the response (matches across newlines)
     match = re.search(r"\{.*\}", raw, re.DOTALL)
     if match:
         try:
             return json.loads(match.group())
         except json.JSONDecodeError:
             pass
-    
+
     logger.debug("Failed to parse Ollama response for %s. Raw: %r", finding_id, raw)
     return None
 
 
-def _call_ollama(
-    record: Dict[str, Any],
-    model: str,
-    timeout: int,
-) -> Dict[str, Any]:
-    """Make the Ollama API call and merge enrichments back into *record*."""
-    prompt = _build_prompt(record)
-
+def _call_ollama_api(prompt: str, model: str, timeout: int) -> str:
+    """Make a raw Ollama generate call and return the response string."""
     payload = json.dumps(
         {
             "model": model,
             "prompt": prompt,
             "stream": False,
-            "format": "json",  # Forces Ollama to output valid JSON
+            "format": "json",
             "options": {"temperature": 0.1, "num_predict": 512},
         }
     ).encode("utf-8")
@@ -260,18 +384,32 @@ def _call_ollama(
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = json.loads(resp.read().decode("utf-8"))
 
-    raw_response: str = body.get("response", "")
-    enriched = _parse_json_response(raw_response, finding_id=record.get("finding_id", "unknown"))
+    return body.get("response", "")
 
-    if enriched is None:
-        logger.warning(
-            "Could not parse Ollama JSON response for %s - keeping heuristic data",
-            record.get("finding_id", "unknown"),
-        )
-        return record
 
-    # Merge enrichments back: only override existing fields when the LLM
-    # returns a non-empty, non-placeholder value.
+def _call_ollama(
+    record: Dict[str, Any],
+    model: str,
+    timeout: int,
+    cache_dir: Optional[Path],
+) -> Dict[str, Any]:
+    """Make the Ollama API call for validation/correction and merge back."""
+    prompt = _build_prompt(record)
+
+    cached = _load_cached(prompt, cache_dir, model)
+    if cached is not None:
+        enriched = cached
+    else:
+        raw_response = _call_ollama_api(prompt, model, timeout)
+        enriched = _parse_json_response(raw_response, finding_id=record.get("finding_id", "unknown"))
+        if enriched is None:
+            logger.warning(
+                "Could not parse Ollama JSON response for %s - keeping heuristic data",
+                record.get("finding_id", "unknown"),
+            )
+            return record
+        _save_cached(prompt, enriched, cache_dir, model)
+
     merged: Dict[str, Any] = dict(record)
 
     _PLACEHOLDER = {"unknown", ""}
@@ -286,7 +424,6 @@ def _call_ollama(
     if enriched.get("attack_vector"):
         merged["attack_vector"] = enriched["attack_vector"]
 
-    # Only fill recommendation if the heuristic pipeline left it empty.
     if enriched.get("remediation") and not merged.get("recommendation"):
         merged["recommendation"] = enriched["remediation"]
 
@@ -298,3 +435,24 @@ def _call_ollama(
             pass
 
     return merged
+
+
+def _call_ollama_mapping(
+    record: Dict[str, Any],
+    model: str,
+    timeout: int,
+    cache_dir: Optional[Path],
+) -> Optional[Dict[str, Any]]:
+    """Make the Ollama API call for semantic mapping of an external record."""
+    prompt = _build_mapping_prompt(record)
+
+    cached = _load_cached(prompt, cache_dir, model)
+    if cached is not None:
+        return cached
+
+    raw_response = _call_ollama_api(prompt, model, timeout)
+    result = _parse_json_response(raw_response)
+    if result is not None:
+        _save_cached(prompt, result, cache_dir, model)
+    return result
+
