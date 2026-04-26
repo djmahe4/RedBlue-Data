@@ -28,9 +28,6 @@ git clone https://github.com/adelsamir01/CyberLLMInstruct external_datasets/Cybe
 #    Trendyol Cybersecurity Instruction-Tuning Dataset (53k+ pairs) – strong general cyber coverage
 huggingface-cli download Trendyol/Trendyol-Cybersecurity-Instruction-Tuning-Dataset --repo-type dataset --local-dir external_datasets/Trendyol
 
-#    (Optional but recommended for red-teaming)
-huggingface-cli download knoveleng/redbench --repo-type dataset --local-dir external_datasets/RedBench   # ~29k red-team samples
-
 # 5. Run your current pipeline once (generates base /dataset/ folder)
 pip install -r requirements.txt
 python scripts/process_reports.py --max_reports 100 --use_ollama   # or without Ollama first
