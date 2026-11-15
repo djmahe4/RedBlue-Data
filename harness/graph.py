@@ -11,7 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
-from tools.browser_drission import browser_fetch
+from tools.browser_drission import browser_fetch, browser_act, browser_run_js
 from tools.ocr_nemotron import ocr_document
 from tools.search_searxng import web_search
 
@@ -26,8 +26,12 @@ class HarnessState:
     model_config: dict[str, Any] = field(default_factory=dict)
 
 
-TOOL_REQUIRES_HITL = {"browser_fetch": True, "web_search": True, "run_python": True}
-TOOL_REGISTRY = {"ocr_document": ocr_document, "browser_fetch": browser_fetch, "web_search": web_search}
+TOOL_REQUIRES_HITL = {"browser_fetch": False, "web_search": True, "run_code": False,
+    "browser_act": False, "browser_run_js": True
+}
+TOOL_REGISTRY = {"ocr_document": ocr_document, "browser_fetch": browser_fetch, "web_search": web_search,
+    "browser_act": browser_act, "browser_run_js": browser_run_js,
+}
 
 
 def _plan(state: HarnessState) -> dict[str, Any]:
@@ -57,7 +61,7 @@ async def run_graph(state: HarnessState, *, run_id: str | None = None) -> AsyncI
     fn = TOOL_REGISTRY.get(plan["tool"])
     if fn is None:
         raise RuntimeError(f"Unknown planned tool: {plan['tool']}")
-    result = fn(plan["input"])
+    result = fn.invoke(plan["input"])
     state.trace.append({"id": "executor", "type": "executor", "label": plan["tool"], "tool": plan["tool"]})
     yield {"event": "executor", "run_id": run_id, "tool": plan["tool"], "result": result}
     state.trace.append({"id": "reflector", "type": "reflector", "label": "complete"})

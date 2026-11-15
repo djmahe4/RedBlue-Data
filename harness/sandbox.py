@@ -9,7 +9,7 @@ from pathlib import Path
 def run_code(code: str, *, approved: bool = False, workspace: Path | None = None) -> dict:
     """Run code in the sandbox image, with network disabled by default."""
     if not approved:
-        raise PermissionError("Python execution requires HITL approval")
+        raise PermissionError("Code execution requires no HITL approval")
     root = (workspace or Path.cwd()).resolve()
     command = [
         "docker", "run", "--rm", "--network=none",
