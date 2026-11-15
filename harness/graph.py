@@ -10,10 +10,14 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
+import inspect
 
 from tools.browser_drission import browser_fetch, browser_act, browser_run_js
 from tools.ocr_nemotron import ocr_document
 from tools.search_searxng import web_search
+from langchain_core.tools import BaseTool
+
+
 
 
 @dataclass
@@ -61,7 +65,16 @@ async def run_graph(state: HarnessState, *, run_id: str | None = None) -> AsyncI
     fn = TOOL_REGISTRY.get(plan["tool"])
     if fn is None:
         raise RuntimeError(f"Unknown planned tool: {plan['tool']}")
-    result = fn.invoke(plan["input"])
+    if isinstance(fn, BaseTool):
+        # BaseTool provides a native non-blocking .ainvoke() method
+        result = await fn.ainvoke(plan["input"])
+    elif inspect.iscoroutinefunction(fn):
+        # Native async function
+        result = await fn(plan["input"])
+    elif callable(fn):
+        # Synchronous blocking function offloaded to a thread
+        result = await asyncio.to_thread(fn, plan["input"])
+
     state.trace.append({"id": "executor", "type": "executor", "label": plan["tool"], "tool": plan["tool"]})
     yield {"event": "executor", "run_id": run_id, "tool": plan["tool"], "result": result}
     state.trace.append({"id": "reflector", "type": "reflector", "label": "complete"})
