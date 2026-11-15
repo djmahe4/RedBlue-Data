@@ -1,21 +1,25 @@
+# Reference-only configuration. Runtime tool registration currently lives in harness/graph.py.
 tools:
-  ocr_nemotron:
+  ocr_document:
     enabled: true
     requires_hitl: false
-    endpoint_env: NEMOTRON_OCR_URL
-    cache_dir: dataset/cache/ocr
-  vision_llm:
+    provider_env: OCR_PROVIDER
+    endpoint_env: OCR_API_URL
+    model_env: OCR_MODEL
+    headers_env: OCR_API_HEADERS
+    fallback: tesseract
+  vlm_reasoning:
     enabled: false
-    requires_hitl: false
-    endpoint_env: VISION_LLM_URL
-    model_env: VISION_LLM_MODEL
+    endpoint_env: VLM_API_URL
+    model_env: VLM_MODEL
+    result_status: unverified
   browser_drission:
     enabled: false
     requires_hitl: true
   search_searxng:
     enabled: false
     requires_hitl: true
-  python_repl:
+  run_sandbox:
     enabled: false
     requires_hitl: true
   manifest_writer:

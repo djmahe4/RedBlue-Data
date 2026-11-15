@@ -3,6 +3,24 @@
 This guide covers how to load the RedBlue dataset and use it to fine-tune
 or evaluate language models.
 
+## Label provenance and review
+
+`vuln_type`, `cwe`, and `owasp` come from deterministic phrase rules over the
+report title and description. `classification_status: rule_matched` means a
+configured phrase matched; it does **not** verify that the report's finding is
+correct. `classification_evidence` stores the matched source phrase.
+
+No match leaves canonical classification fields empty and sets
+`classification_status: unclassified`. If optional Ollama processing is enabled,
+it may attach `ai_classification_suggestion` only when it can cite an exact quote
+from the source title/description. The suggestion remains `unverified`; it never
+fills the canonical labels. Validate against the original report before using
+any rule label or AI suggestion as ground truth.
+
+Syscall events shown by the harness dashboard are runtime telemetry, not report
+content, and are not used as classification evidence or training labels. The
+current repository has a syscall receiver but no Rust collector.
+
 ---
 
 ## Loading the Dataset
@@ -39,8 +57,10 @@ blue_data = load_jsonl("dataset/blue_team.jsonl")
 
 ## Fine-tuning Example (Alpaca-style format)
 
-Each record in `red_team.jsonl` and `blue_team.jsonl` already uses the
-Alpaca instruction format:
+Each record in `red_team.jsonl` and `blue_team.jsonl` uses the Alpaca
+instruction format. The `output` is copied from report technical details or
+recommendations; it is not an independently validated model answer. Review
+source licensing, safety, and label provenance before training:
 
 ```json
 {
@@ -90,9 +110,27 @@ Check `dataset/stats.json` for counts of processed reports and findings.
 
 ## Filtering by Vulnerability Type
 
+Both training splits carry `classification_status`, `classification_evidence`,
+and optional `ai_classification_suggestion`. Filtered records are still not
+verified ground truth; use a separately reviewed allowlist when training against
+confirmed labels:
+
 ```python
-sqli_records = [r for r in red_data if r.get("vuln_type") == "SQLi"]
-high_severity = [r for r in blue_data if r.get("severity") == "high"]
+reviewed_finding_ids = set()  # Populate from a human-reviewed manifest.
+reviewed_red = [
+    record for record in red_data
+    if record.get("finding_id") in reviewed_finding_ids
+]
+```
+
+To inspect rule matches without treating them as confirmed:
+
+```python
+rule_matches = [r for r in red_data if r.get("classification_status") == "rule_matched"]
+unclassified = [r for r in red_data if r.get("classification_status") == "unclassified"]
+needs_ai_review = [
+    r for r in unclassified if r.get("ai_classification_suggestion", {}).get("status") == "unverified"
+]
 ```
 
 ---

@@ -64,6 +64,8 @@ class TestHeuristics:
         assert result["vuln_type"] == "SQLi"
         assert result["cwe"] == "CWE-89"
         assert result["owasp"] == "A03:2021"
+        assert result["classification_status"] == "rule_matched"
+        assert result["classification_evidence"] == "SQL injection"
 
     def test_xss_classification(self):
         result = classify_finding("Reflected XSS on search page")
@@ -88,6 +90,8 @@ class TestHeuristics:
     def test_unknown_vuln_returns_none(self):
         result = classify_finding("The application uses an old version of jQuery")
         assert result["vuln_type"] is None
+        assert result["classification_status"] == "unclassified"
+        assert result["classification_evidence"] is None
 
     def test_informational_normalised(self):
         result = classify_finding("Informational: Missing security headers")

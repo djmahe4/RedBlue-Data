@@ -9,24 +9,33 @@ datasets for red-team (offensive) and blue-team (defensive) LLM training.
 ```bash
 # Clone this repo
 git clone https://github.com/djmahe4/RedBlue-Data
-
-# Change path
 cd RedBlue-Data
 
-# Clone the pentest reports source
+# Create and activate a virtual environment with uv
+uv venv
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
+uv pip install -r requirements.txt
+
+# Create local configuration; edit .env for your setup
+# Windows: copy .env.example .env
+# macOS/Linux: cp .env.example .env
+
+# Clone the pentest reports source into the configured workspace
 git clone --depth 1 https://github.com/juliocesarfort/public-pentesting-reports reports-source
 
-# Install dependencies
-pip install -r requirements.txt
+# Start the application entrypoint: agentic FastAPI harness
+uvicorn api.main:app --reload
+```
 
-# Run the pipeline with basic options
+The harness plans dataset work, requests approval, then calls the existing
+`scripts/process_reports.py` pipeline through `harness/dataset_runner.py`.
+That script is also available as a standalone, non-agentic batch entrypoint:
+
+```bash
 python scripts/process_reports.py --max_reports 30
-
-# Run with OCR enabled (if tesseract is installed) and Ollama enrichment
 python scripts/process_reports.py --use_ollama --ollama_model llama3
-
-# Run tests
-pytest tests/
+pytest tests/ -q
 ```
 
 ## Configuration
@@ -48,4 +57,5 @@ The pipeline supports several CLI options and environment variables:
 - [Dataset Usage](docs/DATASET_USAGE.md)
 - [Training Guide](docs/TRAINING_GUIDE.md)
 - [Pipeline Architecture](docs/PIPELINE_ARCHITECTURE.md)
+- [Harness Operations](docs/HARNESS_OPERATIONS.md)
 - [Dataset README](dataset/README.md)

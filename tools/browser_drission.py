@@ -10,10 +10,18 @@ except ImportError:
     def tool(func):  # type: ignore[no-untyped-def]
         return func
 
-from DrissionPage import Chromium, ChromiumOptions
-from DrissionPage.items import ChromiumElement, NoneElement, MixTab, ChromiumTab
-from DrissionPage.errors import PageDisconnectedError, WaitTimeoutError
-from typing import cast, Any
+from typing import cast
+
+try:
+    from DrissionPage import Chromium, ChromiumOptions
+    from DrissionPage.items import ChromiumElement, NoneElement, ChromiumTab
+    from DrissionPage.errors import PageDisconnectedError, WaitTimeoutError
+except ImportError as exc:
+    Chromium = cast(Any, None)
+    ChromiumOptions = cast(Any, None)
+    _DRISSION_IMPORT_ERROR: ImportError | None = exc
+else:
+    _DRISSION_IMPORT_ERROR = None
 
 
 @dataclass
@@ -31,6 +39,11 @@ class Browser:
     _browser: Any = field(init=False, repr=False, default=None)
 
     def __enter__(self) -> "Browser":
+        if _DRISSION_IMPORT_ERROR is not None:
+            raise RuntimeError(
+                "Browser tools require the optional DrissionPage dependency; "
+                "install it with `pip install DrissionPage`."
+            ) from _DRISSION_IMPORT_ERROR
         co = ChromiumOptions()
         co.headless(self.headless)
         co.set_load_mode("eager")
@@ -116,7 +129,7 @@ class Browser:
     def eval_js(self, script: str, as_expr: bool = False, args=None,
                 timeout: float | None = None) -> Any:
         """Run arbitrary JS in page context (expression if as_expr, else statements)."""
-        return self._tab.run_js(script, as_expr=as_expr, args=args, timetout=timeout)
+        return self._tab.run_js(script, as_expr=as_expr, args=args, timeout=timeout)
 
     def eval_element_js(self, locator: str, script: str, as_expr: bool = False) -> Any:
         """Run JS scoped to an element — `this` === the element."""
@@ -249,10 +262,6 @@ class Browser:
 
     def _to_base64(self, out: str | bytes) -> str:
         return out if isinstance(out, str) else out.decode()
-
-    def screenshot(self, full_page: bool = False) -> str:
-        """Return PNG as base64 (no file I/O)."""
-        return self._to_base64(self._tab.get_screenshot(as_base64="png", full_page=full_page))
 
     def screenshot_element(self, locator: str, center: bool = True) -> str | None:
         ele = cast(ChromiumElement, self._as_element(self._tab.ele(locator, timeout=3)))

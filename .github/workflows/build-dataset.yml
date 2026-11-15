@@ -1,10 +1,10 @@
 name: Build Cybersecurity Dataset
 
 on:
-  # push:
-  #   branches:
-  #     - main
-  #     - 'copilot/**'
+# push:
+#   branches:
+#     - main
+#     - 'copilot/**'
   workflow_dispatch:
     inputs:
       max_reports:
@@ -22,7 +22,7 @@ on:
       skip_ocr:
         description: "Skip OCR for scanned PDFs (true/false)"
         required: false
-        default: "true"
+        default: "false"
 
 jobs:
   build-dataset:
@@ -35,7 +35,7 @@ jobs:
       MAX_REPORTS: ${{ github.event.inputs.max_reports || '30' }}
       MAX_FILE_SIZE_MB: ${{ github.event.inputs.max_file_size_mb || '5' }}
       OCR_DPI: ${{ github.event.inputs.ocr_dpi || '300' }}
-      SKIP_OCR: ${{ github.event.inputs.skip_ocr || 'true' }}
+      SKIP_OCR: ${{ github.event.inputs.skip_ocr || 'false' }}
 
     steps:
       - name: Checkout repository

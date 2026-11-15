@@ -1,0 +1,114 @@
+openapi: 3.1.0
+info:
+  title: RedBlue OCR and VLM Adapter Contract
+  version: 1.0.0
+  description: >-
+    JSON contract expected by tools/ocr.py. OCR_API_URL and optional VLM_API_URL
+    are configured as complete endpoint URLs; this file documents their payloads.
+paths:
+  /ocr:
+    post:
+      operationId: processOcrImage
+      summary: Extract text from an image
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OcrRequest'
+      responses:
+        '200':
+          description: Normalized OCR result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OcrResponse'
+        '4XX':
+          description: Invalid image, model, or request
+        '5XX':
+          description: OCR service failure
+  /reason:
+    post:
+      operationId: reasonAboutOcrImage
+      summary: Return optional image reasoning grounded in OCR text
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VlmRequest'
+      responses:
+        '200':
+          description: Grounded but unverified reasoning result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VlmResponse'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    OcrRequest:
+      type: object
+      required: [task, prompt, mime_type, image_base64]
+      properties:
+        task:
+          const: ocr
+        model:
+          type: [string, 'null']
+        prompt:
+          type: string
+        mime_type:
+          type: string
+        image_base64:
+          type: string
+          contentEncoding: base64
+      additionalProperties: true
+    OcrResponse:
+      type: object
+      required: [markdown, bboxes, classes, confidence]
+      properties:
+        markdown:
+          type: string
+        bboxes:
+          type: array
+          items: {}
+        classes:
+          type: array
+          items: {}
+        confidence:
+          type: array
+          items: {}
+      additionalProperties: true
+    VlmRequest:
+      type: object
+      required: [task, model, prompt, mime_type, image_base64, ocr_text]
+      properties:
+        task:
+          const: reason
+        model:
+          type: string
+        prompt:
+          type: string
+        mime_type:
+          type: string
+        image_base64:
+          type: string
+          contentEncoding: base64
+        ocr_text:
+          type: string
+      additionalProperties: true
+    VlmResponse:
+      type: object
+      required: [reasoning, evidence_quote]
+      properties:
+        reasoning:
+          type: string
+        evidence_quote:
+          type: string

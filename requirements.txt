@@ -10,6 +10,8 @@ uvicorn>=0.29.0
 jinja2>=3.1.0
 sse-starlette>=2.0.0
 pyyaml>=6.0.0
+python-dotenv>=1.0.1
+httpx2>=2.16.0  # FastAPI/Starlette TestClient dependency
 # Optional harness integrations:
 # langgraph>=0.2.0
 # langchain-core>=0.2.0

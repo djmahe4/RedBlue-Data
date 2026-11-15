@@ -7,9 +7,8 @@ from pathlib import Path
 
 # Define a safe parent directory where all allowed workspaces live
 ALLOWED_WORKSPACES_ROOT = Path(
-    os.environ.get("REDBLUE_WORKSPACES_ROOT", "/var/app/workspaces")
+    os.environ.get("REDBLUE_WORKSPACES_ROOT", Path.cwd())
 ).resolve()
-ALLOWED_WORKSPACES_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 
@@ -17,6 +16,9 @@ def run_sandbox(code: str, workspace: Path | str | None = None, approved: bool =
     """Run code or shell commands in the sandbox image, with network disabled by default."""
     if not approved:
         raise PermissionError("Sandbox execution requires HITL approval")
+
+    # Create the configured workspace root only when execution is requested.
+    ALLOWED_WORKSPACES_ROOT.mkdir(parents=True, exist_ok=True)
 
     # Resolve the requested workspace (or default to the safe base directory)
     root = Path(workspace).resolve() if workspace else ALLOWED_WORKSPACES_ROOT

@@ -35,22 +35,19 @@ _SAMPLE_RECORD = {
     "description": "The login form passes unsanitised input directly to the database.",
     "technical_details": None,
     "recommendation": None,
-    "vuln_type": "SQLi",
-    "cwe": "CWE-89",
-    "owasp": "A03:2021",
-    "severity": "high",
+    "vuln_type": None,
+    "cwe": None,
+    "owasp": None,
+    "severity": None,
     "cvss_score": None,
+    "classification_status": "unclassified",
 }
 
 _GOOD_OLLAMA_RESPONSE = json.dumps({
-    "cwe": "CWE-89",
-    "owasp": "A03:2021",
-    "severity": "critical",
-    "vuln_type": "SQLi",
-    "enhanced_description": "Classic SQL injection allows full DB dump.",
-    "attack_vector": "Craft a payload: ' OR 1=1--",
-    "remediation": "Use parameterised queries and an ORM.",
-    "quality_score": 8,
+    "candidate_cwe": "CWE-89",
+    "candidate_owasp": "A03:2021",
+    "candidate_vuln_type": "SQLi",
+    "evidence_quote": "The login form passes unsanitised input directly to the database.",
 })
 
 
@@ -63,9 +60,10 @@ class TestBuildPrompt:
         prompt = _build_prompt(_SAMPLE_RECORD)
         assert "SQL Injection in Login Form" in prompt
 
-    def test_contains_cwe(self):
+    def test_requires_verbatim_source_evidence(self):
         prompt = _build_prompt(_SAMPLE_RECORD)
-        assert "CWE-89" in prompt
+        assert "exact evidence quote" in prompt
+        assert "outside knowledge" in prompt
 
     def test_handles_missing_fields(self):
         prompt = _build_prompt({"finding_id": "x"})
@@ -186,22 +184,37 @@ class TestEnhanceFinding:
         mock_resp.read.return_value = json.dumps({"response": response_text}).encode()
         return mock_resp
 
-    def test_merges_enrichments_into_record(self):
+    def test_adds_only_unverified_grounded_suggestion(self):
         with patch("urllib.request.urlopen", return_value=self._mock_urlopen(_GOOD_OLLAMA_RESPONSE)):
             result = enhance_finding(dict(_SAMPLE_RECORD), model="llama3.2")
 
-        assert result["severity"] == "critical"
-        assert result["enhanced_description"] == "Classic SQL injection allows full DB dump."
-        assert result["attack_vector"] == "Craft a payload: ' OR 1=1--"
-        assert result["recommendation"] == "Use parameterised queries and an ORM."
-        assert result["quality_score"] == 8
+        assert result["vuln_type"] is None
+        assert result["cwe"] is None
+        assert result["classification_status"] == "unclassified"
+        assert result["ai_classification_suggestion"] == {
+            "vuln_type": "SQLi",
+            "cwe": "CWE-89",
+            "owasp": "A03:2021",
+            "evidence_quote": _SAMPLE_RECORD["description"],
+            "status": "unverified",
+        }
 
-    def test_does_not_overwrite_existing_recommendation(self):
-        record = dict(_SAMPLE_RECORD)
-        record["recommendation"] = "Existing recommendation."
-        with patch("urllib.request.urlopen", return_value=self._mock_urlopen(_GOOD_OLLAMA_RESPONSE)):
-            result = enhance_finding(record, model="llama3.2")
-        assert result["recommendation"] == "Existing recommendation."
+    def test_does_not_call_model_for_rule_matched_finding(self):
+        record = dict(_SAMPLE_RECORD, classification_status="rule_matched", vuln_type="SQLi")
+        with patch("urllib.request.urlopen") as urlopen:
+            assert enhance_finding(record, model="llama3.2") == record
+        urlopen.assert_not_called()
+
+    def test_discards_suggestion_without_exact_source_quote(self):
+        response = json.dumps({
+            "candidate_cwe": "CWE-89",
+            "candidate_owasp": "A03:2021",
+            "candidate_vuln_type": "SQLi",
+            "evidence_quote": "The database leaked all records.",
+        })
+        with patch("urllib.request.urlopen", return_value=self._mock_urlopen(response)):
+            result = enhance_finding(dict(_SAMPLE_RECORD), model="llama3.2")
+        assert "ai_classification_suggestion" not in result
 
     def test_returns_original_on_network_error(self):
         import urllib.error
@@ -225,22 +238,15 @@ class TestEnhanceFinding:
                 enhance_finding(original, model="llama3.2")
         assert any("failed" in r.message.lower() for r in caplog.records)
 
-    def test_skips_placeholder_values(self):
-        """Fields returned as 'unknown' by the model must not overwrite good data."""
+    def test_rejects_invalid_candidate_identifiers(self):
         response = json.dumps({
-            "cwe": "unknown",
-            "owasp": "",
-            "severity": "high",
-            "vuln_type": "SQLi",
-            "enhanced_description": "Better desc.",
-            "attack_vector": "",
-            "remediation": "",
-            "quality_score": 5,
+            "candidate_cwe": "unknown",
+            "candidate_owasp": "",
+            "candidate_vuln_type": "SQLi",
+            "evidence_quote": _SAMPLE_RECORD["description"],
         })
-        record = dict(_SAMPLE_RECORD)
         with patch("urllib.request.urlopen", return_value=self._mock_urlopen(response)):
-            result = enhance_finding(record, model="llama3.2")
-        # CWE-89 should be preserved (not overwritten with 'unknown')
-        assert result["cwe"] == "CWE-89"
-        # OWASP should be preserved (not overwritten with '')
-        assert result["owasp"] == "A03:2021"
+            result = enhance_finding(dict(_SAMPLE_RECORD), model="llama3.2")
+        assert result["cwe"] is None
+        assert result["owasp"] is None
+        assert "ai_classification_suggestion" not in result
