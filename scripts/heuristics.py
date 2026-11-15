@@ -48,12 +48,15 @@ def classify_finding(text: str) -> Dict[str, Optional[str]]:
     vuln_type: Optional[str] = None
     cwe: Optional[str] = None
     owasp: Optional[str] = None
+    classification_evidence: Optional[str] = None
 
     for pattern, vt, cwe_id, owasp_cat in _RULES:
-        if pattern.search(text):
+        match = pattern.search(text)
+        if match:
             vuln_type = vt
             cwe = cwe_id
             owasp = owasp_cat
+            classification_evidence = match.group(0)
             break
 
     severity_match = _SEVERITY_PATTERN.search(text)
@@ -70,4 +73,6 @@ def classify_finding(text: str) -> Dict[str, Optional[str]]:
         "owasp": owasp,
         "severity": severity,
         "cvss_score": cvss_score,
+        "classification_status": "rule_matched" if vuln_type else "unclassified",
+        "classification_evidence": classification_evidence,
     }

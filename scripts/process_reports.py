@@ -165,6 +165,9 @@ def _write_finding(
             "finding_id": record["finding_id"],
             "vuln_type": record.get("vuln_type"),
             "severity": record.get("severity"),
+            "classification_status": record.get("classification_status"),
+            "classification_evidence": record.get("classification_evidence"),
+            "ai_classification_suggestion": record.get("ai_classification_suggestion"),
         }
         red_writer.write(red_record)
 
@@ -175,6 +178,9 @@ def _write_finding(
             "finding_id": record["finding_id"],
             "vuln_type": record.get("vuln_type"),
             "severity": record.get("severity"),
+            "classification_status": record.get("classification_status"),
+            "classification_evidence": record.get("classification_evidence"),
+            "ai_classification_suggestion": record.get("ai_classification_suggestion"),
         }
         blue_writer.write(blue_record)
 

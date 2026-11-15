@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080d15">
+  <meta name="description" content="Launch evidence-grounded RedBlue data harness runs.">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/app.css">
+  <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.186.0/build/three.module.js"}}</script>
+  <script>window.PLANNER_MODE = "__PLANNER_MODE__";</script>
+  <script src="/static/home.js" defer></script>
+  <title>RedBlue Data — Run Console</title>
+</head>
+<body class="home-page">
+  <div class="site-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="RedBlue Data home">
+        <span class="brand-mark"><i></i><i></i></span>
+        <span class="brand-name">REDBLUE<span>DATA</span></span>
+      </a>
+      <nav class="top-nav" aria-label="Main navigation">
+        <a class="nav-current" href="/">Run console</a>
+        <a href="/docs">API docs <span aria-hidden="true">↗</span></a>
+      </nav>
+      <div class="system-state"><span class="status-light"></span> LOCAL CONTROL PLANE</div>
+    </header>
+
+    <main>
+      <section class="hero-section">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="eyebrow-line"></span> SECURITY DATA OPERATIONS</p>
+          <h1>Make every run<br><em>traceable.</em></h1>
+          <p class="hero-description">Prepare security datasets and inspect documents through a human-approved workflow. Start here; follow every run from plan to result.</p>
+          <div class="hero-signals" aria-label="Workflow properties">
+            <span><b>01</b> PLAN</span>
+            <span><b>02</b> APPROVE</span>
+            <span><b>03</b> TRACE</span>
+          </div>
+        </div>
+        <div class="hero-visual" aria-hidden="true">
+          <div class="visual-halo"></div>
+          <canvas id="hero-scene"></canvas>
+          <div class="visual-caption"><span class="caption-dot"></span> EVIDENCE PIPELINE <span class="caption-divider">/</span> LIVE VIEW</div>
+          <div class="orbit-label orbit-label-red">RED <span>·</span> ANALYZE</div>
+          <div class="orbit-label orbit-label-blue">BLUE <span>·</span> VERIFY</div>
+        </div>
+      </section>
+
+      <section class="console-layout" id="run-console">
+        <div class="panel launch-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">NEW EXECUTION</p><h2>Start a run</h2></div>
+            <span class="planner-badge" id="planner-mode"></span>
+          </div>
+          <form id="run-form">
+            <label for="workflow">Workflow</label>
+            <select id="workflow" name="workflow">
+              <option value="dataset">Generate dataset</option>
+              <option value="ocr">Read a PDF or image</option>
+              <option value="search">Search the web</option>
+              <option value="browser">Fetch a webpage</option>
+            </select>
+            <label for="task">Run description <span class="label-optional">OPTIONAL</span></label>
+            <input id="task" name="task" maxlength="300" placeholder="e.g. Process recent public pentest reports">
+            <div id="target-field" class="field-group" hidden>
+              <label id="target-label" for="target">Input</label>
+              <input id="target" name="target" autocomplete="off">
+              <p id="target-hint" class="field-hint"></p>
+            </div>
+            <div id="dataset-field" class="field-group">
+              <label for="max-reports">Report limit <span class="label-optional">OPTIONAL</span></label>
+              <input id="max-reports" name="max-reports" type="number" min="1" max="500" value="30">
+              <p class="field-hint">Reads <code>reports-source/</code> from configured workspace. Dataset generation waits for approval.</p>
+            </div>
+            <div class="form-footer">
+              <p id="form-message" class="form-message" role="status" aria-live="polite">External and dataset actions pause for approval.</p>
+              <button id="start-button" class="primary-button" type="submit"><span>Start run</span><span aria-hidden="true">↗</span></button>
+            </div>
+          </form>
+        </div>
+
+        <aside class="panel guardrail-panel">
+          <div class="panel-heading compact-heading">
+            <div><p class="eyebrow">EXECUTION MODEL</p><h2>Human in control</h2></div>
+            <span class="shield-icon" aria-hidden="true">◇</span>
+          </div>
+          <p class="guardrail-copy">Planner proposes one tool. You review gated actions before they run. Every run gets its own trace.</p>
+          <div class="guardrail-list">
+            <div class="guardrail-row"><span class="guardrail-index">A</span><span>Dataset generation</span><span class="gate-tag">APPROVAL</span></div>
+            <div class="guardrail-row"><span class="guardrail-index">B</span><span>Browser and search</span><span class="gate-tag">APPROVAL</span></div>
+            <div class="guardrail-row"><span class="guardrail-index">C</span><span>OCR and local analysis</span><span class="local-tag">LOCAL</span></div>
+          </div>
+          <div class="planner-note"><span class="status-light"></span><span>Planner mode <strong id="planner-detail"></strong></span><a href="/docs">API reference ↗</a></div>
+        </aside>
+      </section>
+
+      <footer class="page-footer">
+        <span>REDBLUE DATA <span class="footer-separator">/</span> LOCAL-FIRST SECURITY DATA TOOLING</span>
+        <span>RUNS ARE EPHEMERAL <span class="footer-separator">·</span> TRACE IS PROCESS-LOCAL</span>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

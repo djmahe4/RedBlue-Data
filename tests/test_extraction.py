@@ -148,6 +148,23 @@ class TestExtractPdf:
 
 
 class TestOcrPagesFallback:
+    def test_configured_model_uses_visual_pdf_ocr(self, tmp_path, monkeypatch):
+        import fitz
+
+        pdf_path = _make_blank_pdf(tmp_path)
+        monkeypatch.setenv("OCR_PROVIDER", "api")
+        monkeypatch.setenv("OCR_API_URL", "https://ocr.example/parse")
+        doc = fitz.open(str(pdf_path))
+        with patch(
+            "tools.pdf_ocr.ocr_pdf_page",
+            return_value={"markdown": "OCR text with visual context"},
+        ) as model_ocr:
+            result = _ocr_pages(doc, [""], [0], pdf_path)
+        doc.close()
+
+        assert result == ["OCR text with visual context"]
+        model_ocr.assert_called_once_with(pdf_path, 1)
+
     def test_graceful_fallback_when_pytesseract_missing(self, tmp_path):
         """_ocr_pages should return pages unchanged if pytesseract is not installed."""
         import fitz

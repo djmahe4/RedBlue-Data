@@ -43,11 +43,11 @@ Each line is a JSON object with the following fields:
 | `vuln_type` | string\|null | e.g. `SQLi`, `XSS`, `RCE` |
 | `cwe` | string\|null | e.g. `CWE-89` |
 | `owasp` | string\|null | e.g. `A03:2021` |
-| `severity` | string\|null | `critical`, `high`, `medium`, `low`, `info` |
-| `cvss_score` | string\|null | Numeric CVSS score (if present) |
-| `enhanced_description` | string\|null | Optional technical description (Ollama) |
-| `attack_vector` | string\|null | Optional exploit scenario (Ollama) |
-| `quality_score` | integer\|null | Optional finding richness score (1-10) |
+| `severity` | string\|null | Severity phrase extracted from report text |
+| `cvss_score` | string\|null | Numeric CVSS score extracted from report text |
+| `classification_status` | string | `rule_matched` or `unclassified`; neither means human-verified |
+| `classification_evidence` | string\|null | Exact phrase matched by the deterministic rule |
+| `ai_classification_suggestion` | object\|null | Optional unverified Ollama candidate with exact source quote |
 
 ### `red_team.jsonl`
 
@@ -55,10 +55,13 @@ Each line is a JSON object with the following fields:
 |-------|------|-------------|
 | `instruction` | string | Task instruction for the LLM |
 | `input` | string | Title + description of the finding |
-| `output` | string | Technical details / exploit scenario |
+| `output` | string | Source-report technical details |
 | `finding_id` | string | Cross-reference to `findings.jsonl` |
-| `vuln_type` | string\|null | Vulnerability type |
-| `severity` | string\|null | Severity level |
+| `vuln_type` | string\|null | Rule-derived label; not independently verified |
+| `severity` | string\|null | Severity phrase extracted from report |
+| `classification_status` | string | `rule_matched` or `unclassified` |
+| `classification_evidence` | string\|null | Exact matched source phrase |
+| `ai_classification_suggestion` | object\|null | Optional unverified suggestion with source quote |
 
 ### `blue_team.jsonl`
 
@@ -66,10 +69,13 @@ Each line is a JSON object with the following fields:
 |-------|------|-------------|
 | `instruction` | string | Task instruction for the LLM |
 | `input` | string | Title + description of the finding |
-| `output` | string | Remediation guidance |
+| `output` | string | Source-report recommendation, or fallback text |
 | `finding_id` | string | Cross-reference to `findings.jsonl` |
-| `vuln_type` | string\|null | Vulnerability type |
-| `severity` | string\|null | Severity level |
+| `vuln_type` | string\|null | Rule-derived label; not independently verified |
+| `severity` | string\|null | Severity phrase extracted from report |
+| `classification_status` | string | `rule_matched` or `unclassified` |
+| `classification_evidence` | string\|null | Exact matched source phrase |
+| `ai_classification_suggestion` | object\|null | Optional unverified suggestion with source quote |
 
 ---
 

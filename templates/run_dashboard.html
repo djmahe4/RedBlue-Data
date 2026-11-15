@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#080d15">
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/app.css">
+  <script>window.RUN_ID = __RUN_ID_JSON__;</script>
+  <script src="/static/dashboard.js" defer></script>
+  <title>Run trace — RedBlue Data</title>
+</head>
+<body class="run-page">
+  <div class="site-shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="RedBlue Data home">
+        <span class="brand-mark"><i></i><i></i></span>
+        <span class="brand-name">REDBLUE<span>DATA</span></span>
+      </a>
+      <nav class="top-nav" aria-label="Main navigation">
+        <a href="/">Run console</a>
+        <a href="/docs">API docs <span aria-hidden="true">↗</span></a>
+      </nav>
+      <a class="back-link" href="/">← New run</a>
+    </header>
+
+    <main class="run-main">
+      <section class="run-heading">
+        <div>
+          <p class="eyebrow"><span class="eyebrow-line"></span> EXECUTION TRACE</p>
+          <h1>Run <code id="run-id"></code></h1>
+          <p id="task" class="run-task">Loading task…</p>
+        </div>
+        <div class="run-status-block">
+          <span id="status" class="run-status" data-status="queued">QUEUED</span>
+          <span class="run-status-caption">LIVE RUN STATE</span>
+        </div>
+      </section>
+
+      <section class="metric-grid" aria-label="Run metrics">
+        <article class="metric-card"><span class="metric-label">TRACE EVENTS</span><strong id="event-count">0</strong><span class="metric-foot">planner · executor · reflector</span></article>
+        <article class="metric-card"><span class="metric-label">SYSCALLS</span><strong id="syscall-count">0</strong><span class="metric-foot">collector ingestion</span></article>
+        <article class="metric-card"><span class="metric-label">APPROVAL</span><strong id="approval-count">—</strong><span class="metric-foot">human-in-the-loop gate</span></article>
+      </section>
+
+      <section class="run-grid">
+        <article class="panel trace-panel">
+          <div class="panel-heading">
+            <div><p class="eyebrow">OBSERVABILITY</p><h2>Execution trace</h2></div>
+            <span class="live-chip"><span class="status-light"></span> STREAMING</span>
+          </div>
+          <ol id="trace" class="trace-list" aria-live="polite"><li class="trace-empty">Waiting for first event…</li></ol>
+        </article>
+
+        <aside class="panel approval-panel" aria-live="polite">
+          <div class="panel-heading compact-heading">
+            <div><p class="eyebrow">ACTION GATE</p><h2>Review pending action</h2></div>
+            <span class="gate-mark" aria-hidden="true">!</span>
+          </div>
+          <p class="approval-copy">Review the exact plan and input before allowing a gated action to execute.</p>
+          <pre id="details" class="action-details">No action pending.</pre>
+          <button id="approve" class="primary-button approve-button" hidden type="button"><span>Approve and continue</span><span aria-hidden="true">→</span></button>
+        </aside>
+      </section>
+
+      <section class="panel syscall-panel">
+        <div class="panel-heading">
+          <div><p class="eyebrow">RUST HOOK INGESTION</p><h2>Syscall events</h2></div>
+          <span class="table-count"><span id="syscall-count-inline">0</span> captured</span>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Timestamp</th><th>PID</th><th>Syscall</th><th>Result</th><th>Duration (ns)</th></tr></thead>
+            <tbody id="syscalls"><tr><td class="table-empty" colspan="5">No syscall events received for this run.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+      <footer class="page-footer"><a href="/">← Return to run console</a><span>RUN DATA IS HELD IN PROCESS MEMORY</span></footer>
+    </main>
+  </div>
+</body>
+</html>

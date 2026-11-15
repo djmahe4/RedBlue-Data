@@ -8,9 +8,13 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 # DPI used when rendering PDF pages for OCR.  Higher = better accuracy but
 # slower.  Override via OCR_DPI env var.
@@ -49,7 +53,8 @@ def _extract_pdf(path: Path, skip_ocr: bool = False) -> str:
     pages: list[str] = []
     ocr_needed: list[int] = []  # page indices that yielded no text
 
-    for i, page in enumerate(doc):
+    for i in range(len(doc)):
+        page = doc[i]
         text = page.get_text().strip()
         if text:
             pages.append(text)
@@ -67,14 +72,43 @@ def _extract_pdf(path: Path, skip_ocr: bool = False) -> str:
                 len(ocr_needed),
                 len(pages),
             )
-            pages = _ocr_pages(doc, pages, ocr_needed)
+            pages = _ocr_pages(doc, pages, ocr_needed, path)
 
     doc.close()
     return "\n".join(pages)
 
 
-def _ocr_pages(doc, pages: list[str], indices: list[int]) -> list[str]:
-    """Replace empty page slots with OCR text using pytesseract."""
+def _ocr_pages(
+    doc,
+    pages: list[str],
+    indices: list[int],
+    pdf_path: Path | None = None,
+) -> list[str]:
+    """OCR blank PDF pages with configured models, then fall back to Tesseract."""
+    provider = os.environ.get("OCR_PROVIDER", "auto").lower()
+    model_ocr_configured = provider in {"api", "ollama", "nemotron"} or (
+        provider == "auto"
+        and (
+            os.environ.get("OCR_API_URL")
+            or os.environ.get("NEMOTRON_OCR_URL")
+            or os.environ.get("OLLAMA_OCR_MODEL")
+            or (os.environ.get("OCR_MODEL") and os.environ.get("OLLAMA_BASE_URL"))
+        )
+    )
+    if pdf_path is not None and model_ocr_configured:
+        from tools.pdf_ocr import ocr_pdf_page
+
+        fallback_indices = []
+        for index in indices:
+            try:
+                result = ocr_pdf_page(pdf_path, index + 1)
+                pages[index] = str(result.get("markdown") or "").strip()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Model OCR failed on page %d of %s: %s", index + 1, pdf_path, exc)
+                fallback_indices.append(index)
+        indices = fallback_indices
+        if not indices:
+            return pages
     try:
         import pytesseract  # type: ignore[import]
         from PIL import Image  # type: ignore[import]
