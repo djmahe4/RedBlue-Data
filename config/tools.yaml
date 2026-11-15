@@ -1,0 +1,23 @@
+tools:
+  ocr_nemotron:
+    enabled: true
+    requires_hitl: false
+    endpoint_env: NEMOTRON_OCR_URL
+    cache_dir: dataset/cache/ocr
+  vision_llm:
+    enabled: false
+    requires_hitl: false
+    endpoint_env: VISION_LLM_URL
+    model_env: VISION_LLM_MODEL
+  browser_drission:
+    enabled: false
+    requires_hitl: true
+  search_searxng:
+    enabled: false
+    requires_hitl: true
+  python_repl:
+    enabled: false
+    requires_hitl: true
+  manifest_writer:
+    enabled: true
+    requires_hitl: false

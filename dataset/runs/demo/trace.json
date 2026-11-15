@@ -1,0 +1,9 @@
+{
+  "nodes": [
+    {"id": "planner", "type": "planner", "label": "ocr_document"},
+    {"id": "executor", "type": "executor", "label": "OCR complete"}
+  ],
+  "edges": [
+    {"from": "planner", "to": "executor", "tool": "ocr_document"}
+  ]
+}

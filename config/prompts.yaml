@@ -1,0 +1,7 @@
+planner: |
+  Choose the next enabled tool based on the current task and context.
+reflector: |
+  Summarize the completed tool call, its result, and the next useful action.
+vision_ocr: |
+  Review the OCR markdown and image, identify ambiguous regions, and explain
+  corrections without inventing text that is not supported by the image.

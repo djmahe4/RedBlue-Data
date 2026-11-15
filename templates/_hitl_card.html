@@ -1,0 +1,6 @@
+<section id="hitl-area">
+  <strong>Approval required</strong>
+  <form hx-post="/api/run/{{ run_id }}/approve" hx-target="#hitl-area" hx-swap="outerHTML">
+    <button type="submit">Approve</button>
+  </form>
+</section>

@@ -5,6 +5,20 @@
 The RedBlue pipeline ingests public penetration testing reports and produces
 three structured JSONL datasets suitable for LLM training.
 
+The optional local harness adds an adaptive FastAPI layer without changing
+those records:
+
+```
+FastAPI /api/run/* (SSE) -> planner -> HITL gate -> executor -> reflector
+                                  |          |
+                             local tools   external tools
+                              (OCR)       (browser/search)
+```
+
+`/r3f/trace/{run_id}` exposes the same trace as nodes and edges for the
+CDN-loaded trace canvas. External network tools and sandbox execution require
+approval; the existing Tesseract path remains the fallback.
+
 ```
 reports-source/           (cloned from juliocesarfort/public-pentesting-reports)
         │
