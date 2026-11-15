@@ -13,6 +13,21 @@ uvicorn api.main:app --reload
 requirement. `config/tools.yaml` is currently reference-only; runtime registry
 is defined in `harness/graph.py`.
 
+## Planner
+
+Set `HARNESS_PLANNER=ollama` to use local Ollama for selecting one tool from
+an allowlist. It uses `PLANNER_MODEL` or falls back to `OLLAMA_MODEL`,
+`OLLAMA_BASE_URL`, and `PLANNER_TIMEOUT`. Default `HARNESS_PLANNER=rules`
+keeps deterministic keyword routing when model planning is disabled. The model
+selects a tool only; arguments come from the request, not model-generated
+values. Each run executes at most one tool. Browser, search, and dataset actions
+remain HITL-gated; approval replays the exact stored plan without asking the
+model again. Planner prompts go to the configured Ollama endpoint, so use a
+local endpoint for private task text. The referenced [harness-creator skill](https://github.com/walkinglabs/learn-harness-engineering/blob/main/skills/harness-creator/SKILL.md)
+covers coding-agent instructions, state, and verification artifacts rather than
+runtime planner design; implementation here follows its scope and verification
+principles.
+
 ## Dataset generation
 
 Start a run with a dataset task and optional settings:
@@ -60,6 +75,16 @@ are retained only with a verbatim quote from OCR text and remain unverified.
 URL to watch execution, approve pending actions, and inspect syscall events.
 Run events are held in process memory and disappear when the API restarts.
 
+Agent stages use an OpenTelemetry-style span record: `trace_id`, `span_id`,
+`parent_span_id`, `name`, `kind`, `status`, nanosecond start/end times,
+`duration_ns`, and semantic `attributes`. Planner, approval, tool execution,
+reflection, errors, and syscalls share the run's `trace_id`; trace edges show
+parent-child relationships rather than just event order. Expand a dashboard
+trace row to inspect its IDs and attributes. This local schema has no OpenTelemetry
+SDK or OTLP exporter; exception stack traces and tool arguments are not added to
+span attributes. Exception messages may still include local paths or provider
+details, so bind the API to a trusted interface.
+
 ## Rust syscall-hook ingestion contract
 
 The API accepts one event per request at `POST /api/run/{run_id}/syscalls`.
@@ -72,12 +97,16 @@ the API. Ingestion is disabled when that variable is unset.
   "syscall": "openat",
   "pid": 1234,
   "result": 0,
-  "duration_ns": 1200
+  "duration_ns": 1200,
+  "parent_span_id": "0123456789abcdef"
 }
 ```
 
-Only syscall name, PID, result, and duration are retained; do not send syscall
-arguments, file contents, credentials, or other sensitive data. Events are
-bounded to the newest 10,000 per run. The repository currently provides the
-receiver and dashboard, not a Rust syscall collector. A collector still needs a
-platform-specific implementation selected for the deployment environment.
+`parent_span_id` is optional and must be a 16-character hex span ID when
+provided. The URL supplies `trace_id`; the API assigns a syscall span ID and
+records process PID, syscall name, result, and duration as attributes. Do not
+send syscall arguments, file contents, credentials, or other sensitive data.
+Events are bounded to the newest 10,000 per run. The repository currently
+provides the receiver and dashboard, not a Rust syscall collector. A collector
+still needs a platform-specific implementation selected for the deployment
+environment.

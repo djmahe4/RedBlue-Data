@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import html
 import json
 import os
 import re
@@ -16,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
 from harness.graph import HarnessState, run_graph
+from harness.telemetry import make_span
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -23,6 +25,13 @@ app = FastAPI(title="RedBlue-Data Harness")
 TEMPLATES = Path(__file__).parent.parent / "templates"
 RUNS: dict[str, dict[str, Any]] = {}
 app.mount("/static", StaticFiles(directory=Path(__file__).parent.parent / "static"), name="static")
+
+
+@app.get("/", response_class=HTMLResponse)
+async def home() -> HTMLResponse:
+    page = (TEMPLATES / "index.html").read_text(encoding="utf-8")
+    planner_mode = html.escape(os.environ.get("HARNESS_PLANNER", "rules").strip().lower())
+    return HTMLResponse(page.replace("__PLANNER_MODE__", planner_mode))
 
 
 @app.post("/api/run/start")
@@ -35,7 +44,7 @@ async def start_run(payload: dict[str, Any]) -> dict[str, str]:
         "status": "queued",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    return {"run_id": run_id, "dashboard_url": f"/dashboard/{run_id}"}
+    return {"run_id": run_id, "trace_id": run_id, "dashboard_url": f"/dashboard/{run_id}"}
 
 
 @app.get("/api/run/{run_id}/stream", response_model=None)
@@ -53,12 +62,26 @@ async def stream_run(run_id: str) -> EventSourceResponse | JSONResponse:
                 run["events"].append(event)
                 if event["event"] == "hitl_request":
                     run["status"] = "awaiting_approval"
+                elif event["event"] == "error":
+                    run["status"] = "failed"
                 yield {"event": event["event"], "data": json.dumps(event)}
             if run["status"] == "running":
                 run["status"] = "completed"
         except Exception as exc:
             run["status"] = "failed"
-            event = {"event": "error", "run_id": run_id, "message": str(exc)}
+            parent_span_id = run["events"][-1].get("span_id") if run["events"] else None
+            event = make_span(
+                "error",
+                run_id,
+                name="harness.exception",
+                parent_span_id=parent_span_id,
+                status="ERROR",
+                attributes={
+                    "exception.type": type(exc).__name__,
+                    "exception.message": str(exc),
+                },
+                payload={"message": str(exc)},
+            )
             run["events"].append(event)
             yield {"event": "error", "data": json.dumps(event)}
 
@@ -72,7 +95,22 @@ async def approve_run(run_id: str) -> JSONResponse:
     run = RUNS[run_id]
     if run["status"] != "awaiting_approval":
         return JSONResponse({"error": "run is not awaiting approval"}, status_code=409)
-    run["state"].approved = True
+    state = run["state"]
+    pending = state.pending_action or {}
+    approval_event = make_span(
+        "approval",
+        run_id,
+        name="harness.approval",
+        parent_span_id=state.trace_context.get("hitl_span_id"),
+        attributes={
+            "approval.decision": "approved",
+            "tool.name": pending.get("tool", "unknown"),
+        },
+    )
+    state.trace_context["approval_span_id"] = approval_event["span_id"]
+    state.trace.append(approval_event)
+    run["events"].append(approval_event)
+    state.approved = True
     run["status"] = "queued"
     return JSONResponse({"status": "approved", "run_id": run_id})
 
@@ -84,9 +122,14 @@ async def run_status(run_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="run not found")
     return {
         "run_id": run_id,
+        "trace_id": run_id,
         "task": run["state"].task,
         "status": run["status"],
         "pending_action": run["state"].pending_action,
+        "last_error": next(
+            (event.get("message") for event in reversed(run["events"]) if event.get("event") == "error"),
+            None,
+        ),
         "event_count": len(run["events"]),
         "syscall_count": len(run["syscalls"]),
     }
@@ -121,14 +164,47 @@ async def record_syscall(
     result = payload.get("result")
     if result is not None and (isinstance(result, bool) or not isinstance(result, int)):
         raise HTTPException(status_code=422, detail="result must be an integer")
+    parent_span_id = payload.get("parent_span_id")
+    if parent_span_id is not None and (
+        not isinstance(parent_span_id, str)
+        or not re.fullmatch(r"[0-9a-fA-F]{16}", parent_span_id)
+    ):
+        raise HTTPException(status_code=422, detail="parent_span_id must be a 16-character hex span ID")
 
-    event = {
-        "timestamp": str(payload.get("timestamp") or datetime.now(timezone.utc).isoformat())[:64],
-        "syscall": syscall,
-        "pid": pid,
-        "result": result,
-        "duration_ns": duration_ns,
-    }
+    timestamp = payload.get("timestamp")
+    if timestamp is None:
+        parsed_timestamp = datetime.now(timezone.utc)
+    elif not isinstance(timestamp, str) or len(timestamp) > 64:
+        raise HTTPException(status_code=422, detail="timestamp must be an ISO 8601 string of at most 64 characters")
+    else:
+        try:
+            parsed_timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="timestamp must be a valid ISO 8601 value") from exc
+        if parsed_timestamp.tzinfo is None:
+            parsed_timestamp = parsed_timestamp.replace(tzinfo=timezone.utc)
+
+    try:
+        start_time_unix_nano = int(parsed_timestamp.timestamp() * 1_000_000_000)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="timestamp is outside the supported range") from exc
+
+    event = make_span(
+        "syscall",
+        run_id,
+        name=f"syscall.{syscall}",
+        parent_span_id=parent_span_id,
+        status=("UNSET" if result is None else "ERROR" if result < 0 else "OK"),
+        start_time_unix_nano=start_time_unix_nano,
+        duration_ns=duration_ns or 0,
+        attributes={
+            "process.pid": pid,
+            "redblue.syscall.name": syscall,
+            "redblue.syscall.result": result,
+            "redblue.syscall.duration_ns": duration_ns,
+        },
+        payload={"syscall": syscall, "pid": pid, "result": result},
+    )
     run["syscalls"].append(event)
     if len(run["syscalls"]) > 10_000:
         del run["syscalls"][:-10_000]
@@ -158,28 +234,45 @@ async def trace(run_id: str) -> dict[str, list[dict[str, Any]]]:
     run = RUNS.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="run not found")
-    events = run["events"] + [
-        {"event": "syscall", **item} for item in run["syscalls"]
-    ]
-    nodes = [
-        {
-            "id": f"{run_id}:{index}",
+    events = sorted(
+        run["events"] + run["syscalls"],
+        key=lambda event: event.get("start_time_unix_nano", 0),
+    )
+    nodes = []
+    for index, event in enumerate(events):
+        attributes = event.get("attributes", {})
+        span_id = event.get("span_id") or f"{run_id}:{index}"
+        nodes.append({
+            "id": span_id,
+            "trace_id": event.get("trace_id", run_id),
+            "span_id": span_id,
+            "parent_span_id": event.get("parent_span_id"),
+            "name": event.get("name", event.get("event", "event")),
+            "kind": event.get("kind", "INTERNAL"),
             "type": event.get("event", "event"),
             "label": (
                 event.get("tool")
                 or event.get("syscall")
                 or event.get("plan", {}).get("tool")
+                or attributes.get("tool.name")
+                or event.get("name")
                 or event.get("event")
             ),
             "timestamp": event.get("timestamp"),
+            "start_time_unix_nano": event.get("start_time_unix_nano"),
+            "end_time_unix_nano": event.get("end_time_unix_nano"),
+            "duration_ns": event.get("duration_ns", 0),
+            "status": event.get("status", "UNSET"),
+            "attributes": attributes,
+            "message": event.get("message"),
             "pid": event.get("pid"),
             "result": event.get("result"),
-        }
-        for index, event in enumerate(events)
-    ]
+        })
+    span_ids = {node["id"] for node in nodes}
     edges = [
-        {"from": nodes[index - 1]["id"], "to": node["id"], "tool": node["label"]}
-        for index, node in enumerate(nodes) if index
+        {"from": node["parent_span_id"], "to": node["id"], "relationship": "parent"}
+        for node in nodes
+        if node["parent_span_id"] in span_ids
     ]
     return {"nodes": nodes, "edges": edges}
 
@@ -188,34 +281,8 @@ async def trace(run_id: str) -> dict[str, list[dict[str, Any]]]:
 async def dashboard(run_id: str) -> HTMLResponse:
     if run_id not in RUNS:
         raise HTTPException(status_code=404, detail="run not found")
-    page = f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Run {run_id}</title>
-  <style>
-    body {{ font: 14px system-ui, sans-serif; margin: 2rem; max-width: 1100px; }}
-    section {{ border: 1px solid #8885; border-radius: 8px; margin: 1rem 0; padding: 1rem; }}
-    table {{ border-collapse: collapse; width: 100%; }}
-    th, td {{ border-bottom: 1px solid #8885; padding: .5rem; text-align: left; }}
-    #status {{ font-weight: 700; }}
-    pre {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
-  </style>
-  <script>window.RUN_ID = {json.dumps(run_id)};</script>
-  <script src="/static/dashboard.js" defer></script>
-</head>
-<body>
-  <h1>Harness run</h1>
-  <p>Run ID: <code>{run_id}</code> · Status: <span id="status">loading</span></p>
-  <p id="task"></p>
-  <button id="approve" hidden>Approve pending action</button>
-  <section><h2>Execution trace</h2><ol id="trace"></ol></section>
-  <section><h2>Syscall events</h2><table><thead><tr><th>Time</th><th>PID</th><th>Syscall</th><th>Result</th><th>Duration (ns)</th></tr></thead><tbody id="syscalls"></tbody></table></section>
-  <section><h2>Pending action / error</h2><pre id="details">None</pre></section>
-</body>
-</html>"""
-    return HTMLResponse(page)
+    page = (TEMPLATES / "run_dashboard.html").read_text(encoding="utf-8")
+    return HTMLResponse(page.replace("__RUN_ID_JSON__", json.dumps(run_id)))
 
 
 @app.get("/ui/tools", response_class=HTMLResponse)

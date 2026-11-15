@@ -28,9 +28,11 @@ git clone --depth 1 https://github.com/juliocesarfort/public-pentesting-reports 
 uvicorn api.main:app --reload
 ```
 
-The harness plans dataset work, requests approval, then calls the existing
-`scripts/process_reports.py` pipeline through `harness/dataset_runner.py`.
-That script is also available as a standalone, non-agentic batch entrypoint:
+The harness can use local Ollama to select one allowlisted tool when
+`HARNESS_PLANNER=ollama`; deterministic keyword routing remains the default.
+Tool arguments come from the request, and external or dataset actions still
+require approval. Dataset runs call `scripts/process_reports.py` through
+`harness/dataset_runner.py`. That script is also a standalone batch entrypoint:
 
 ```bash
 python scripts/process_reports.py --max_reports 30
