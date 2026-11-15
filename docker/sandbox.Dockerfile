@@ -15,9 +15,6 @@ RUN apk add --no-cache \
     py3-pip \
     git
 
-# Set up a non-root user for safer execution
-RUN adduser -D secuser
-USER secuser
-WORKDIR /home/secuser
+WORKDIR /workspace
 
 CMD ["/bin/sh"]
