@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 
-def run_python(code: str, *, approved: bool = False, workspace: Path | None = None) -> dict:
+def run_code(code: str, *, approved: bool = False, workspace: Path | None = None) -> dict:
     """Run code in the sandbox image, with network disabled by default."""
     if not approved:
         raise PermissionError("Python execution requires HITL approval")
@@ -15,7 +15,7 @@ def run_python(code: str, *, approved: bool = False, workspace: Path | None = No
         "docker", "run", "--rm", "--network=none",
         "--read-only", "-v", f"{root}:/workspace:ro",
         os.environ.get("REDBLUE_SANDBOX_IMAGE", "redblue-sandbox"),
-        "python", "-c", code,
+        code,
     ]
     result = subprocess.run(command, capture_output=True, text=True, timeout=120, check=False)
     return {"returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
